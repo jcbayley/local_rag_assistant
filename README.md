@@ -1,0 +1,2 @@
+Simple project to use Retreval Augmented Generation (RAG) alongside a language model to search through web pages for information. 
+Uses ollama for the language model and chromadb for the text database. Small web app with flask.
