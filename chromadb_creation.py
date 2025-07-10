@@ -3,6 +3,8 @@ import json
 import argparse
 from sentence_transformers import SentenceTransformer
 from chromadb.utils.embedding_functions import SentenceTransformerEmbeddingFunction
+import textwrap
+import uuid
 
 # Function to load a collection
 def load_collection():
@@ -16,6 +18,10 @@ def load_collection():
     results = collection.query(query_texts=["This is a query"], n_results=2)
     return results
 
+def chunk_text(text, max_tokens=500):
+    # Naive splitting by sentence or characters
+    # You can replace with token-based chunking if needed
+    return textwrap.wrap(text, width=max_tokens)
 
 def create_collection(input_data="scraped_data.json", output_path="./chroma_db"):
     # Initialize ChromaDB client with the same path used for persistence
@@ -27,17 +33,25 @@ def create_collection(input_data="scraped_data.json", output_path="./chroma_db")
     embedding_fn = SentenceTransformerEmbeddingFunction(model_name="all-MiniLM-L6-v2")
 
     # Create a collection in ChromaDB
-    collection = client.create_collection(name="scraped_data", embedding_function=embedding_fn)
+    collection = client.create_collection(name="chunked_scraped_data", embedding_function=embedding_fn)
 
-    # Add each scraped data entry to the collection
-    for idx, data in enumerate(scraped_data):
-        collection.add(
-            documents=data['text'],
-            metadatas={'url': data['url']},
-            ids=str(idx)
-        )
+    doc_count = 0
+    for data in scraped_data:
+        text = data['text']
+        url = data['url']
 
-    client.persist()
+        # Split into smaller chunks
+        chunks = chunk_text(text, max_tokens=500)
+
+        for chunk in chunks:
+            # Generate a unique ID for each chunk
+            chunk_id = f"{doc_count}-{uuid.uuid4()}"
+            collection.add(
+                documents=[chunk],
+                metadatas=[{'url': url}],
+                ids=[chunk_id]
+            )
+        doc_count += 1
 
 
 if __name__ == "__main__":

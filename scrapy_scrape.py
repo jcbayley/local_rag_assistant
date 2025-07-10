@@ -97,7 +97,7 @@ class TextSpider2(CrawlSpider):
 
         # Extract visible body text
         text = tree.xpath('//body//text()')
-        joined_text = ' '.join(text)
+        joined_text = '\n'.join(text)
 
         # Clean whitespace
         page_text = re.sub(r'\s+', ' ', joined_text).strip()
