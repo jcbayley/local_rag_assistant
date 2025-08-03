@@ -21,28 +21,32 @@ except Exception as e:
     client = None
     collection = None
 
-def retrieve_relevant_docs(query, top_k=3):
+def retrieve_relevant_docs(query, top_k=3, use_chromadb=True):
     try:
         all_documents = []
         all_metadata = []
         
         # Search temporary documents first
-        temp_docs, temp_meta = search_temp_documents(query, top_k//2 + 1)
+        temp_docs, temp_meta = search_temp_documents(query, top_k//2 + 1 if use_chromadb else top_k)
         if temp_docs:
             all_documents.extend(temp_docs)
             all_metadata.extend(temp_meta)
             print(f"Found {len(temp_docs)} results from temporary documents")
         
-        # Search ChromaDB if available
-        remaining_k = max(1, top_k - len(all_documents))
-        if collection is not None:
-            results = collection.query(query_texts=[query], n_results=remaining_k)
-            if results['documents'] and results['documents'][0]:
-                all_documents.extend(results['documents'][0])
-                all_metadata.extend(results['metadatas'][0])
-                print(f"Found {len(results['documents'][0])} results from ChromaDB")
+        # Search ChromaDB only if enabled and available
+        if use_chromadb:
+            remaining_k = max(1, top_k - len(all_documents))
+            if collection is not None:
+                results = collection.query(query_texts=[query], n_results=remaining_k)
+                if results['documents'] and results['documents'][0]:
+                    all_documents.extend(results['documents'][0])
+                    all_metadata.extend(results['metadatas'][0])
+                    print(f"Found {len(results['documents'][0])} results from ChromaDB")
+            elif not all_documents:
+                print("Warning: ChromaDB not available and no temporary documents")
+                return "No documents available", []
         elif not all_documents:
-            print("Warning: ChromaDB not available and no temporary documents")
+            print("Warning: ChromaDB disabled and no temporary documents")
             return "No documents available", []
         
         if not all_documents:
@@ -105,13 +109,13 @@ def get_model_response(prompt, model="qwen2.5vl:3b", temperature=0.1, max_tokens
         return "Error: Unexpected error occurred"
 
 
-def rag_system(query, top_k=10, verbose=False, model_kwargs={"model": "qwen2.5vl:3b", "temperature": 0.1, "max_tokens": 1000, "repeat_penalty": 1.2, "top_p": 0.9}):
+def rag_system(query, top_k=10, verbose=False, model_kwargs={"model": "qwen2.5vl:3b", "temperature": 0.1, "max_tokens": 1000, "repeat_penalty": 1.2, "top_p": 0.9}, use_chromadb=True):
     
     if verbose:
         print(f"Query: {query}")
     
     # Retrieve relevant documents using the original query directly
-    context, metadata = retrieve_relevant_docs(query, top_k=top_k)
+    context, metadata = retrieve_relevant_docs(query, top_k=top_k, use_chromadb=use_chromadb)
     
     if verbose:
         print(f"Retrieved {len(metadata)} documents")

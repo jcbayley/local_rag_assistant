@@ -61,6 +61,7 @@ def chat():
             return jsonify({"error": "Missing 'query'"}), 400
             
         top_k = int(data.get('top_k', 10))
+        use_chromadb = data.get('use_chromadb', True)
         kwargs = {
             "model": data.get('model_name', "qwen2.5vl:3b"),
             "temperature": float(data.get('temperature', 0.1)),
@@ -69,7 +70,7 @@ def chat():
             "top_p": float(data.get('top_p', 0.9))
         }
         
-        response, top_urls = rag_system(query, top_k=top_k, verbose=True, model_kwargs=kwargs)
+        response, top_urls = rag_system(query, top_k=top_k, verbose=True, model_kwargs=kwargs, use_chromadb=use_chromadb)
         
         # Handle different metadata formats (ChromaDB vs temp docs)
         source_links = "\n\n**Sources:**\n"
