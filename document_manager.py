@@ -372,6 +372,97 @@ class DocumentManager:
     
     # === Status and Info Methods ===
     
+    def switch_database(self, new_chromadb_path: str, new_collection_name: str = None) -> Tuple[bool, str]:
+        """
+        Switch to a different ChromaDB database and/or collection.
+        
+        Args:
+            new_chromadb_path: Path to the new ChromaDB database
+            new_collection_name: Name of collection (uses current if not provided)
+            
+        Returns:
+            Tuple of (success: bool, message: str)
+        """
+        try:
+            # Use current collection name if not provided
+            if new_collection_name is None:
+                new_collection_name = self.collection_name
+            
+            # Initialize new client
+            new_client = chromadb.PersistentClient(path=new_chromadb_path)
+            
+            try:
+                new_collection = new_client.get_collection(new_collection_name)
+            except:
+                # Create collection if it doesn't exist
+                new_collection = new_client.create_collection(
+                    new_collection_name, 
+                    embedding_function=self.embedding_function
+                )
+            
+            # Switch to new database
+            self.chromadb_path = new_chromadb_path
+            self.collection_name = new_collection_name
+            self.chromadb_client = new_client
+            self.chromadb_collection = new_collection
+            
+            return True, f"Switched to database: {new_chromadb_path}, collection: {new_collection_name}"
+            
+        except Exception as e:
+            return False, f"Failed to switch database: {str(e)}"
+    
+    def list_available_databases(self, base_path: str = ".") -> List[str]:
+        """
+        List available ChromaDB databases in the given path.
+        
+        Args:
+            base_path: Base directory to search for databases
+            
+        Returns:
+            List of database directory names
+        """
+        import os
+        databases = []
+        
+        try:
+            for item in os.listdir(base_path):
+                item_path = os.path.join(base_path, item)
+                if os.path.isdir(item_path):
+                    # Check if it looks like a ChromaDB directory
+                    chroma_file = os.path.join(item_path, "chroma.sqlite3")
+                    if os.path.exists(chroma_file) or item.endswith("_db") or item == "chroma_db":
+                        databases.append(item)
+        except Exception as e:
+            print(f"Error listing databases: {e}")
+        
+        return sorted(databases)
+    
+    def list_collections_in_database(self, db_path: str = None) -> List[str]:
+        """
+        List collections in a ChromaDB database.
+        
+        Args:
+            db_path: Database path (uses current if not provided)
+            
+        Returns:
+            List of collection names
+        """
+        try:
+            if db_path is None:
+                client = self.chromadb_client
+            else:
+                client = chromadb.PersistentClient(path=db_path)
+            
+            if client is None:
+                return []
+                
+            collections = client.list_collections()
+            return [col.name for col in collections]
+            
+        except Exception as e:
+            print(f"Error listing collections: {e}")
+            return []
+
     def get_status(self) -> Dict:
         """Get current status of the document manager."""
         return {
@@ -380,7 +471,9 @@ class DocumentManager:
             'collection_name': self.collection_name,
             'embedding_model': self.embedding_model_name,
             'temp_documents_count': len(self.temp_documents),
-            'temp_documents': self.get_temp_documents_info()
+            'temp_documents': self.get_temp_documents_info(),
+            'available_databases': self.list_available_databases(),
+            'available_collections': self.list_collections_in_database()
         }
     
     def __repr__(self) -> str:

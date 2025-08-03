@@ -28,10 +28,34 @@ class RAGSystem:
         self.doc_manager = document_manager
         self.ollama_url = ollama_url
     
+    def _stream_response(self, response):
+        """
+        Generator that yields streaming response chunks.
+        
+        Args:
+            response: requests.Response object from Ollama
+            
+        Yields:
+            str: Individual response chunks
+        """
+        try:
+            for line in response.iter_lines():
+                if line:
+                    try:
+                        data = line.decode("utf-8")
+                        json_obj = json.loads(data)
+                        if "response" in json_obj:
+                            yield json_obj["response"]
+                    except (json.JSONDecodeError, UnicodeDecodeError) as e:
+                        print(f"Warning: Failed to parse response line: {e}")
+                        continue
+        except Exception as e:
+            yield f"Error in streaming: {str(e)}"
+    
     def get_model_response(self, prompt: str, model: str = "qwen2.5vl:3b", 
                           temperature: float = 0.1, max_tokens: int = 500, 
                           repeat_penalty: float = 1.3, top_p: float = 0.9,
-                          timeout: int = 120) -> str:
+                          timeout: int = 120, stream: bool = False):
         """
         Get response from Ollama language model.
         
@@ -43,9 +67,10 @@ class RAGSystem:
             repeat_penalty: Repetition penalty
             top_p: Top-p sampling parameter
             timeout: Request timeout in seconds
+            stream: If True, returns generator for streaming; if False, returns complete string
             
         Returns:
-            Generated text response
+            Generated text response (str) or generator for streaming
         """
         try:
             response = requests.post(self.ollama_url, json={
@@ -61,19 +86,24 @@ class RAGSystem:
             
             response.raise_for_status()
             
-            full_response = ""
-            for line in response.iter_lines():
-                if line:
-                    try:
-                        data = line.decode("utf-8")
-                        json_obj = json.loads(data)
-                        if "response" in json_obj:
-                            full_response += json_obj["response"]
-                    except (json.JSONDecodeError, UnicodeDecodeError) as e:
-                        print(f"Warning: Failed to parse response line: {e}")
-                        continue
+            if stream:
+                # Return generator for streaming
+                return self._stream_response(response)
+            else:
+                # Return complete response as before
+                full_response = ""
+                for line in response.iter_lines():
+                    if line:
+                        try:
+                            data = line.decode("utf-8")
+                            json_obj = json.loads(data)
+                            if "response" in json_obj:
+                                full_response += json_obj["response"]
+                        except (json.JSONDecodeError, UnicodeDecodeError) as e:
+                            print(f"Warning: Failed to parse response line: {e}")
+                            continue
 
-            return full_response
+                return full_response
             
         except requests.exceptions.Timeout:
             print("Error: Request to Ollama timed out (consider reducing max_tokens or checking Ollama status)")
@@ -143,6 +173,79 @@ Provide a bulleted answer with source references and format in markdown. Answer 
         response = self.get_model_response(prompt, **model_kwargs)
         
         return response, metadata[:5]  # Limit metadata for consistency
+    
+    def query_stream(self, query: str, top_k: int = 10, verbose: bool = False,
+                    use_chromadb: bool = True, use_temp_docs: bool = True,
+                    model_kwargs: dict = None):
+        """
+        Process a query using RAG with streaming response.
+        
+        Args:
+            query: User's question/query
+            top_k: Number of documents to retrieve
+            verbose: Enable verbose logging
+            use_chromadb: Whether to search ChromaDB
+            use_temp_docs: Whether to search temporary documents
+            model_kwargs: Parameters for the language model
+            
+        Yields:
+            dict: Streaming response chunks with metadata
+        """
+        if model_kwargs is None:
+            model_kwargs = {
+                "model": "qwen2.5vl:3b",
+                "temperature": 0.1,
+                "max_tokens": 1000,
+                "repeat_penalty": 1.2,
+                "top_p": 0.9
+            }
+        
+        if verbose:
+            print(f"Query: {query}")
+            print(f"Search settings - ChromaDB: {use_chromadb}, Temp docs: {use_temp_docs}")
+        
+        # Retrieve relevant documents
+        context, metadata = self.doc_manager.search(
+            query=query,
+            top_k=top_k,
+            use_chromadb=use_chromadb,
+            use_temp_docs=use_temp_docs
+        )
+        
+        if verbose:
+            print(f"Retrieved {len(metadata)} documents")
+        
+        # Send initial metadata
+        yield {
+            "type": "metadata",
+            "sources_count": len(metadata),
+            "metadata": metadata[:5]
+        }
+        
+        # Generate response with streaming
+        prompt = f"""You are a helpful assistant searching a document archive. Use the provided context to answer the query. 
+You must cite the source from each document directly after the fact it supports! 
+Do not guess or make up information not found in the context.
+
+Context: {context}
+
+Query: {query}
+
+Provide a bulleted answer with source references and format in markdown. Answer with references to sources:"""
+
+        # Stream the response
+        try:
+            response_stream = self.get_model_response(prompt, stream=True, **model_kwargs)
+            for chunk in response_stream:
+                yield {
+                    "type": "content",
+                    "chunk": chunk
+                }
+        except Exception as e:
+            yield {
+                "type": "error",
+                "message": f"Error generating response: {str(e)}"
+            }
     
     def get_status(self) -> dict:
         """Get current status of the RAG system."""

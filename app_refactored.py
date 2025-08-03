@@ -4,7 +4,7 @@ Refactored Flask App using DocumentManager class
 Clean implementation using proper class-based document management.
 """
 
-from flask import Flask, request, jsonify, render_template
+from flask import Flask, request, jsonify, render_template, Response
 from document_manager import DocumentManager
 from rag_system_refactored import RAGSystem
 import markdown
@@ -70,7 +70,7 @@ def get_ollama_models():
 def index():
     """Main page with chat interface."""
     models = get_ollama_models()
-    return render_template("./index.html", models=models)
+    return render_template("./index_streaming.html", models=models)
 
 
 @app.route('/api/chat', methods=['POST'])
@@ -121,6 +121,86 @@ def chat():
     except Exception as e:
         print(f"Error in chat endpoint: {e}")
         return jsonify({"error": "Failed to process request"}), 500
+
+
+@app.route('/api/chat/stream', methods=['POST'])
+def chat_stream():
+    """Process chat queries with streaming response using Server-Sent Events."""
+    try:
+        data = request.get_json()
+        query = data.get('query')
+        if not query:
+            return jsonify({"error": "Missing 'query'"}), 400
+            
+        top_k = int(data.get('top_k', 10))
+        use_chromadb = data.get('use_chromadb', True)
+        
+        model_kwargs = {
+            "model": data.get('model_name', "qwen2.5vl:3b"),
+            "temperature": float(data.get('temperature', 0.1)),
+            "max_tokens": int(data.get('max_tokens', 100)),
+            "repeat_penalty": float(data.get('repeat_penalty', 1.4)),
+            "top_p": float(data.get('top_p', 0.9))
+        }
+        
+        def generate():
+            try:
+                metadata_stored = None
+                
+                # Stream the response from RAG system
+                for chunk in rag_system.query_stream(
+                    query=query,
+                    top_k=top_k,
+                    verbose=True,
+                    use_chromadb=use_chromadb,
+                    use_temp_docs=True,
+                    model_kwargs=model_kwargs
+                ):
+                    # Store metadata for later use
+                    if chunk['type'] == 'metadata':
+                        metadata_stored = chunk['metadata']
+                    
+                    # Send data in SSE format
+                    yield f"data: {json.dumps(chunk)}\n\n"
+                
+                # Add sources at the end
+                if metadata_stored:
+                    source_links = "\n\n**Sources:**\n"
+                    for url_data in metadata_stored:
+                        if isinstance(url_data, dict):
+                            if 'url' in url_data:
+                                # ChromaDB format
+                                source_links += f"- [{url_data['url']}]({url_data['url']})\n"
+                            elif 'filename' in url_data:
+                                # Temporary document format
+                                source_links += f"- {url_data['filename']} ({url_data.get('source_type', 'Document')})\n"
+                    
+                    # Send sources as content
+                    yield f"data: {json.dumps({'type': 'content', 'chunk': source_links})}\n\n"
+                
+                # Send completion signal
+                yield f"data: {json.dumps({'type': 'complete'})}\n\n"
+                
+            except Exception as e:
+                error_chunk = {
+                    "type": "error",
+                    "message": f"Streaming error: {str(e)}"
+                }
+                yield f"data: {json.dumps(error_chunk)}\n\n"
+        
+        return Response(
+            generate(),
+            mimetype='text/event-stream',
+            headers={
+                'Cache-Control': 'no-cache',
+                'Connection': 'keep-alive',
+                'Access-Control-Allow-Origin': '*',
+            }
+        )
+        
+    except Exception as e:
+        print(f"Error in streaming chat endpoint: {e}")
+        return jsonify({"error": "Failed to process streaming request"}), 500
 
 
 @app.route('/api/upload', methods=['POST'])
@@ -238,6 +318,52 @@ def get_status():
     except Exception as e:
         print(f"Error getting status: {e}")
         return jsonify({"error": "Failed to get status"}), 500
+
+
+@app.route('/api/databases', methods=['GET'])
+def list_databases():
+    """List available ChromaDB databases."""
+    try:
+        databases = document_manager.list_available_databases()
+        return jsonify({"databases": databases})
+    except Exception as e:
+        print(f"Error listing databases: {e}")
+        return jsonify({"error": "Failed to list databases"}), 500
+
+
+@app.route('/api/collections', methods=['GET'])
+def list_collections():
+    """List collections in current or specified database."""
+    try:
+        db_path = request.args.get('db_path')
+        collections = document_manager.list_collections_in_database(db_path)
+        return jsonify({"collections": collections})
+    except Exception as e:
+        print(f"Error listing collections: {e}")
+        return jsonify({"error": "Failed to list collections"}), 500
+
+
+@app.route('/api/database/switch', methods=['POST'])
+def switch_database():
+    """Switch to a different database and/or collection."""
+    try:
+        data = request.get_json()
+        db_path = data.get('db_path')
+        collection_name = data.get('collection_name')
+        
+        if not db_path:
+            return jsonify({"error": "db_path is required"}), 400
+        
+        success, message = document_manager.switch_database(db_path, collection_name)
+        
+        if success:
+            return jsonify({"message": message, "status": document_manager.get_status()})
+        else:
+            return jsonify({"error": message}), 500
+            
+    except Exception as e:
+        print(f"Error switching database: {e}")
+        return jsonify({"error": "Failed to switch database"}), 500
 
 
 if __name__ == '__main__':

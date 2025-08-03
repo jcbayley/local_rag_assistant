@@ -1,0 +1,606 @@
+<!doctype html>
+<html>
+<head>
+  <title>RAG Chat - Streaming</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      margin: 0;
+      padding: 0;
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      background: #f8f9fa;
+    }
+    #chat {
+        flex: 1;
+        overflow-y: auto;
+        display: flex;
+        flex-direction: column-reverse; /* Bottom-up */
+        padding: 1rem;
+        }
+    .message {
+      margin-bottom: 1rem;
+    }
+    .user {
+      font-weight: bold;
+      color: #007bff;
+    }
+    .bot {
+      font-weight: bold;
+      color: #28a745;
+    }
+    #input-form {
+      display: flex;
+      padding: 0.75rem;
+      background: #fff;
+      border-top: 1px solid #ccc;
+    }
+    #query {
+      flex: 1;
+      padding: 0.5rem;
+      font-size: 1rem;
+    }
+    button {
+      padding: 0.5rem 1rem;
+      margin-left: 0.5rem;
+      font-size: 1rem;
+    }
+    #loading {
+      font-style: italic;
+      color: gray;
+    }
+    .md {
+        background: #f1f1f1;
+        padding: 0.75rem;
+        border-radius: 6px;
+        margin-top: 0.25rem;
+        font-size: 0.95rem;
+    }
+
+    .md p {
+    margin: 0.5rem 0;
+    }
+
+    .md code {
+    background: #eee;
+    padding: 0.2rem 0.4rem;
+    border-radius: 4px;
+    font-family: monospace;
+    }
+
+    .md pre {
+    background: #eee;
+    padding: 1rem;
+    overflow-x: auto;
+    border-radius: 4px;
+    }
+
+    .streaming {
+      background: #f9f9f9;
+      padding: 0.75rem;
+      border-radius: 6px;
+      margin-top: 0.25rem;
+      font-size: 0.95rem;
+      border-left: 3px solid #28a745;
+    }
+
+    .cursor {
+      animation: blink 1s infinite;
+    }
+
+    @keyframes blink {
+      0%, 50% { opacity: 1; }
+      51%, 100% { opacity: 0; }
+    }
+
+    .toggle-button {
+      background: #6c757d;
+      color: white;
+      border: none;
+      padding: 0.5rem;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 0.9rem;
+      margin-bottom: 1rem;
+    }
+
+    .toggle-button.active {
+      background: #28a745;
+    }
+  </style>
+</head>
+
+<!-- Settings Panel -->
+<div id="settings" style="position: fixed; top: 1rem; right: 1rem; background: #fff; padding: 1rem; border: 1px solid #ccc; border-radius: 8px;">
+  <h4 onclick="toggleSettings()" style="cursor: pointer; margin: 0 0 1rem 0;">Settings <span id="settingsToggle">▼</span></h4>
+  <div id="settingsContent">
+  
+  <!-- Streaming Toggle -->
+  <button id="streamingToggle" class="toggle-button active" onclick="toggleStreaming()">
+    🔴 Streaming ON
+  </button>
+  
+  <!-- Database Selection -->
+  <label for="database_select">Database:
+  <select id="database_select" onchange="loadCollections()">
+    <option value="">Loading...</option>
+  </select>
+  </label>
+  <br><br>
+  
+  <label for="collection_select">Collection:
+  <select id="collection_select">
+    <option value="">Loading...</option>
+  </select>
+  </label>
+  <br><br>
+  
+  <button onclick="switchDatabase()" style="padding: 0.25rem 0.5rem; font-size: 0.8rem; background: #007bff; color: white;">
+    Switch Database
+  </button>
+  <div id="databaseStatus" style="font-size: 0.8em; margin-top: 0.5rem;"></div>
+  <br><br>
+  
+  <label for="model_name">Model:
+  <select id="model_name" name="model_name">
+    {% for model in models %}
+      <option value="{{ model }}" {% if model == 'qwen2.5vl:3b' %}selected{% endif %}>{{ model }}</option>
+    {% endfor %}
+  </select>
+</label>
+  <br><br>
+  <label>Top K:
+    <input type="number" id="top_k" value="5" min="1" max="100">
+  </label>
+  <br><br>
+  <label>Temperature:
+    <input type="number" id="temperature" value="0.1" step="0.01" min="0" max="1">
+  </label>
+  <br><br>
+  <label>Max Tokens:
+    <input type="number" id="max_tokens" value="1000" min="1" max="4096">
+  </label>
+  <br><br>
+  <label>Repeat Penalty:
+    <input type="number" id="repeat_penalty" value="1.2" step="0.1" min="1" max="10">
+  </label>
+  <br><br>
+  <label>Top P:
+    <input type="number" id="top_p" value="0.9" step="0.01" min="0" max="1">
+  </label>
+  <br><br>
+  </div>
+</div>
+
+<body>
+  <div id="chat"></div>
+  <div id="input-form">
+    <input type="text" id="query" placeholder="Type your message..." autofocus>
+    <button onclick="toggleDocuments()" title="Manage Documents">📄</button>
+    <button onclick="sendMessage()">Send</button>
+  </div>
+
+  <!-- Documents Popup -->
+  <div id="documentsPopup" style="display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #fff; padding: 2rem; border: 2px solid #ccc; border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.2); z-index: 1000; max-width: 400px; width: 90%;">
+    <h3 style="margin-top: 0;">Temporary Documents</h3>
+    <input type="file" id="fileInput" accept=".pdf,.txt,.md" style="margin-bottom: 1rem; width: 100%;">
+    <div style="margin-bottom: 1rem;">
+      <button onclick="uploadDocument()" style="padding: 0.5rem 1rem; margin-right: 0.5rem;">Upload</button>
+      <button onclick="clearTempDocs()" style="padding: 0.5rem 1rem; background: #dc3545; color: white;">Clear All</button>
+    </div>
+    <div id="uploadStatus" style="margin-bottom: 1rem; font-size: 0.9em;"></div>
+    <div id="tempDocsList" style="margin-bottom: 1rem; font-size: 0.9em; max-height: 200px; overflow-y: auto; border: 1px solid #eee; padding: 0.5rem; border-radius: 4px;"></div>
+    <button onclick="toggleDocuments()" style="padding: 0.5rem 1rem; background: #6c757d; color: white;">Close</button>
+  </div>
+
+  <!-- Popup Overlay -->
+  <div id="popupOverlay" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 999;" onclick="toggleDocuments()"></div>
+
+  <script>
+    const chat = document.getElementById("chat");
+    const input = document.getElementById("query");
+    let streamingEnabled = true;
+    let currentEventSource = null;
+
+    function addMessage(sender, text, isStreaming = false) {
+        const div = document.createElement("div");
+        div.className = "message";
+
+        if (sender === "bot") {
+            const contentClass = isStreaming ? "streaming" : "md";
+            div.innerHTML = `<span class="${sender}">${sender}:</span><br><div class="${contentClass}" id="${isStreaming ? 'streaming-content' : ''}">${text}</div>`;
+        } else {
+            div.innerHTML = `<span class="${sender}">${sender}:</span> ${text}`;
+        }
+
+        chat.prepend(div);
+        return div;
+    }
+
+    function sendMessage() {
+        const text = input.value.trim();
+        if (!text) return;
+
+        const modelName = document.getElementById("model_name").value;
+        const topK = document.getElementById("top_k").value;
+        const selectedCollection = document.getElementById("collection_select").value;
+        const useChromaDB = selectedCollection !== "no_database";
+
+        addMessage("user", text);
+        input.value = "";
+
+        if (streamingEnabled) {
+            sendStreamingMessage(text, modelName, topK, useChromaDB);
+        } else {
+            sendRegularMessage(text, modelName, topK, useChromaDB);
+        }
+    }
+
+    async function sendStreamingMessage(text, modelName, topK, useChromaDB) {
+        // Add loading message
+        const botMessage = addMessage("bot", "<span class='cursor'>|</span>", true);
+        const streamingContent = document.getElementById('streaming-content');
+        let fullContent = "";
+
+        try {
+            const response = await fetch("/api/chat/stream", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    query: text,
+                    model_name: modelName,
+                    top_k: topK,
+                    use_chromadb: useChromaDB
+                })
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+
+            while (true) {
+                const { done, value } = await reader.read();
+                
+                if (done) break;
+
+                const chunk = decoder.decode(value, { stream: true });
+                const lines = chunk.split('\n');
+
+                for (const line of lines) {
+                    if (line.startsWith('data: ')) {
+                        try {
+                            const data = JSON.parse(line.slice(6));
+                            
+                            if (data.type === 'metadata') {
+                                console.log(`Found ${data.sources_count} sources`);
+                            } else if (data.type === 'content') {
+                                fullContent += data.chunk;
+                                streamingContent.innerHTML = fullContent + "<span class='cursor'>|</span>";
+                            } else if (data.type === 'complete') {
+                                // Remove cursor and finalize
+                                streamingContent.innerHTML = fullContent;
+                                streamingContent.className = "md";
+                                return;
+                            } else if (data.type === 'error') {
+                                streamingContent.innerHTML = `Error: ${data.message}`;
+                                streamingContent.className = "md";
+                                return;
+                            }
+                        } catch (e) {
+                            console.error('Error parsing streaming data:', e);
+                        }
+                    }
+                }
+            }
+        } catch (err) {
+            streamingContent.innerHTML = "Error: " + err.message;
+            streamingContent.className = "md";
+        }
+    }
+
+    function sendRegularMessage(text, modelName, topK, useChromaDB) {
+        const loadingMsg = document.createElement("div");
+        loadingMsg.id = "loading";
+        loadingMsg.innerText = "Sending...";
+        chat.prepend(loadingMsg);
+
+        fetch("/api/chat", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                query: text,
+                model_name: modelName,
+                top_k: topK,
+                use_chromadb: useChromaDB
+            })
+        })
+        .then(res => {
+            if (!res.ok) {
+                return res.json().then(data => {
+                    throw new Error(data.error || 'Request failed');
+                });
+            }
+            return res.json();
+        })
+        .then(data => {
+            document.getElementById("loading").remove();
+            addMessage("bot", data.response);
+        })
+        .catch(err => {
+            document.getElementById("loading").remove();
+            addMessage("bot", "Error: " + err.message);
+        });
+    }
+
+    function toggleStreaming() {
+        streamingEnabled = !streamingEnabled;
+        const button = document.getElementById('streamingToggle');
+        
+        if (streamingEnabled) {
+            button.innerHTML = '🔴 Streaming ON';
+            button.classList.add('active');
+        } else {
+            button.innerHTML = '⚫ Streaming OFF';
+            button.classList.remove('active');
+            
+            // Close any active streaming connection
+            if (currentEventSource) {
+                currentEventSource.close();
+                currentEventSource = null;
+            }
+        }
+    }
+
+    // Press Enter to send
+    input.addEventListener("keypress", function(e) {
+      if (e.key === "Enter") {
+        sendMessage();
+        e.preventDefault();
+      }
+    });
+
+    function uploadDocument() {
+        const fileInput = document.getElementById("fileInput");
+        const uploadStatus = document.getElementById("uploadStatus");
+        
+        if (!fileInput.files.length) {
+            uploadStatus.innerHTML = '<span style="color: red;">Please select a file</span>';
+            return;
+        }
+        
+        const formData = new FormData();
+        formData.append('file', fileInput.files[0]);
+        
+        uploadStatus.innerHTML = '<span style="color: blue;">Uploading...</span>';
+        
+        fetch('/api/upload', {
+            method: 'POST',
+            body: formData
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.message) {
+                uploadStatus.innerHTML = '<span style="color: green;">' + data.message + '</span>';
+                fileInput.value = '';
+                loadTempDocs();
+            } else {
+                uploadStatus.innerHTML = '<span style="color: red;">Error: ' + (data.error || 'Upload failed') + '</span>';
+            }
+        })
+        .catch(err => {
+            uploadStatus.innerHTML = '<span style="color: red;">Error: ' + err.message + '</span>';
+        });
+    }
+
+    function loadTempDocs() {
+        fetch('/api/temp-docs')
+        .then(res => res.json())
+        .then(data => {
+            const tempDocsList = document.getElementById('tempDocsList');
+            if (data.documents && data.documents.length > 0) {
+                const docList = data.documents.map(doc => 
+                    `<div style="padding: 0.25rem; border-bottom: 1px solid #eee;">
+                        <strong>${doc.filename}</strong> (${doc.source_type})<br>
+                        <small>${doc.total_chunks} chunks</small>
+                    </div>`
+                ).join('');
+                tempDocsList.innerHTML = '<strong>Loaded Documents:</strong><br>' + docList;
+            } else {
+                tempDocsList.innerHTML = '<em>No temporary documents loaded</em>';
+            }
+        })
+        .catch(err => {
+            console.log('Error loading temp docs:', err);
+        });
+    }
+
+    function clearTempDocs() {
+        if (!confirm('Clear all temporary documents?')) return;
+        
+        fetch('/api/temp-docs/clear', { method: 'POST' })
+        .then(res => res.json())
+        .then(data => {
+            if (data.message) {
+                document.getElementById('uploadStatus').innerHTML = '<span style="color: green;">' + data.message + '</span>';
+                loadTempDocs();
+            }
+        })
+        .catch(err => {
+            document.getElementById('uploadStatus').innerHTML = '<span style="color: red;">Error clearing documents</span>';
+        });
+    }
+
+    function toggleSettings() {
+        const content = document.getElementById('settingsContent');
+        const toggle = document.getElementById('settingsToggle');
+        
+        if (content.style.display === 'none') {
+            content.style.display = 'block';
+            toggle.textContent = '▼';
+        } else {
+            content.style.display = 'none';
+            toggle.textContent = '▶';
+        }
+    }
+
+    function toggleDocuments() {
+        const popup = document.getElementById('documentsPopup');
+        const overlay = document.getElementById('popupOverlay');
+        
+        if (popup.style.display === 'none') {
+            popup.style.display = 'block';
+            overlay.style.display = 'block';
+            loadTempDocs();
+        } else {
+            popup.style.display = 'none';
+            overlay.style.display = 'none';
+        }
+    }
+
+    function loadDatabases() {
+        fetch('/api/databases')
+        .then(res => res.json())
+        .then(data => {
+            const select = document.getElementById('database_select');
+            select.innerHTML = '<option value="">Select Database</option>';
+            
+            if (data.databases) {
+                data.databases.forEach(db => {
+                    const option = document.createElement('option');
+                    option.value = db;
+                    option.textContent = db;
+                    select.appendChild(option);
+                });
+                
+                // Set current database as selected
+                fetch('/api/status')
+                .then(res => res.json())
+                .then(status => {
+                    if (status.document_manager && status.document_manager.chromadb_path) {
+                        const currentDb = status.document_manager.chromadb_path.split('/').pop();
+                        select.value = currentDb;
+                        loadCollections();
+                    }
+                });
+            }
+        })
+        .catch(err => {
+            console.error('Error loading databases:', err);
+            document.getElementById('database_select').innerHTML = '<option value="">Error loading databases</option>';
+        });
+    }
+
+    function loadCollections() {
+        const selectedDb = document.getElementById('database_select').value;
+        const select = document.getElementById('collection_select');
+        
+        if (!selectedDb) {
+            select.innerHTML = '<option value="">Select Database First</option>';
+            // Add "No Database" option even when no database is selected
+            const noDbOption = document.createElement('option');
+            noDbOption.value = 'no_database';
+            noDbOption.textContent = '🚫 No Database (Temp docs only)';
+            select.appendChild(noDbOption);
+            return;
+        }
+        
+        select.innerHTML = '<option value="">Loading...</option>';
+        
+        fetch(`/api/collections?db_path=${encodeURIComponent('./' + selectedDb)}`)
+        .then(res => res.json())
+        .then(data => {
+            select.innerHTML = '<option value="">Select Collection</option>';
+            
+            // Add "No Database" option
+            const noDbOption = document.createElement('option');
+            noDbOption.value = 'no_database';
+            noDbOption.textContent = '🚫 No Database (Temp docs only)';
+            select.appendChild(noDbOption);
+            
+            if (data.collections) {
+                data.collections.forEach(collection => {
+                    const option = document.createElement('option');
+                    option.value = collection;
+                    option.textContent = collection;
+                    select.appendChild(option);
+                });
+                
+                // Set current collection as selected
+                fetch('/api/status')
+                .then(res => res.json())
+                .then(status => {
+                    if (status.document_manager && status.document_manager.collection_name) {
+                        select.value = status.document_manager.collection_name;
+                    }
+                });
+            }
+        })
+        .catch(err => {
+            console.error('Error loading collections:', err);
+            select.innerHTML = '<option value="">Error loading collections</option>';
+        });
+    }
+
+    function switchDatabase() {
+        const selectedDb = document.getElementById('database_select').value;
+        const selectedCollection = document.getElementById('collection_select').value;
+        const statusDiv = document.getElementById('databaseStatus');
+        
+        if (!selectedCollection) {
+            statusDiv.innerHTML = '<span style="color: red;">Please select a collection</span>';
+            return;
+        }
+        
+        // Handle "No Database" option
+        if (selectedCollection === 'no_database') {
+            statusDiv.innerHTML = '<span style="color: green;">✓ Using temporary documents only</span>';
+            return;
+        }
+        
+        if (!selectedDb) {
+            statusDiv.innerHTML = '<span style="color: red;">Please select a database</span>';
+            return;
+        }
+        
+        statusDiv.innerHTML = '<span style="color: blue;">Switching database...</span>';
+        
+        fetch('/api/database/switch', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                db_path: './' + selectedDb,
+                collection_name: selectedCollection
+            })
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.message) {
+                statusDiv.innerHTML = '<span style="color: green;">✓ ' + data.message + '</span>';
+            } else {
+                statusDiv.innerHTML = '<span style="color: red;">Error: ' + (data.error || 'Switch failed') + '</span>';
+            }
+        })
+        .catch(err => {
+            statusDiv.innerHTML = '<span style="color: red;">Error: ' + err.message + '</span>';
+        });
+    }
+
+    // Load temp docs and databases on page load
+    window.onload = function() {
+        loadTempDocs();
+        loadDatabases();
+    }
+
+    // Clean up on page unload
+    window.addEventListener('beforeunload', function() {
+        if (currentEventSource) {
+            currentEventSource.close();
+        }
+    });
+  </script>
+</body>
+</html>
