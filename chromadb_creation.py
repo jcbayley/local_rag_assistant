@@ -5,6 +5,9 @@ from sentence_transformers import SentenceTransformer
 from chromadb.utils.embedding_functions import SentenceTransformerEmbeddingFunction
 import textwrap
 import uuid
+import PyPDF2
+import os
+from pathlib import Path
 
 # Function to load a collection
 def load_collection():
@@ -52,6 +55,84 @@ def create_collection(input_data="scraped_data.json", output_path="./chroma_db")
                 ids=[chunk_id]
             )
         doc_count += 1
+
+def extract_text_from_pdf(pdf_path):
+    """Extract text from PDF file"""
+    try:
+        with open(pdf_path, 'rb') as file:
+            pdf_reader = PyPDF2.PdfReader(file)
+            text = ""
+            for page in pdf_reader.pages:
+                text += page.extract_text() + "\n"
+        return text.strip()
+    except Exception as e:
+        print(f"Error reading PDF {pdf_path}: {e}")
+        return ""
+
+def extract_text_from_file(file_path):
+    """Extract text from text file"""
+    try:
+        with open(file_path, 'r', encoding='utf-8') as file:
+            return file.read().strip()
+    except Exception as e:
+        print(f"Error reading text file {file_path}: {e}")
+        return ""
+
+def add_document_to_collection(file_path, client_path="./chroma_db"):
+    """Add a single document (PDF or text) to ChromaDB collection using same embedding function"""
+    try:
+        # Initialize client with same embedding function as create_collection
+        client = chromadb.PersistentClient(path=client_path)
+        embedding_fn = SentenceTransformerEmbeddingFunction(model_name="all-MiniLM-L6-v2")
+        
+        try:
+            collection = client.get_collection("chunked_scraped_data")
+        except:
+            collection = client.create_collection("chunked_scraped_data", embedding_function=embedding_fn)
+        
+        file_path = Path(file_path)
+        filename = file_path.name
+        
+        # Extract text based on file type
+        if file_path.suffix.lower() == '.pdf':
+            text = extract_text_from_pdf(file_path)
+            source_type = "PDF"
+        elif file_path.suffix.lower() in ['.txt', '.md']:
+            text = extract_text_from_file(file_path)
+            source_type = "Text"
+        else:
+            print(f"Unsupported file type: {file_path.suffix}")
+            return False
+        
+        if not text:
+            print(f"No text extracted from {filename}")
+            return False
+        
+        # Split into chunks using same function
+        chunks = chunk_text(text, max_tokens=500)
+        
+        print(f"Adding {len(chunks)} chunks from {filename}")
+        
+        # Add chunks to collection
+        for i, chunk in enumerate(chunks):
+            chunk_id = f"{filename}-{i}-{uuid.uuid4()}"
+            collection.add(
+                documents=[chunk],
+                metadatas=[{
+                    'url': f"file://{file_path.absolute()}",
+                    'filename': filename,
+                    'source_type': source_type,
+                    'chunk_index': i
+                }],
+                ids=[chunk_id]
+            )
+        
+        print(f"Successfully added {filename} to ChromaDB")
+        return True
+        
+    except Exception as e:
+        print(f"Error adding document {file_path}: {e}")
+        return False
 
 
 if __name__ == "__main__":

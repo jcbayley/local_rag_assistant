@@ -39,7 +39,14 @@ def scrape_text_and_crawl(root_url, max_pages=10):
         visited.add(normalised_url)
         try:
             # Send a GET request to the URL
-            response = requests.get(url, cookies={'cookieconsent_status': 'dismissed'})
+            response = requests.get(
+                url, 
+                cookies={'cookieconsent_status': 'dismissed'},
+                timeout=10,
+                headers={'User-Agent': 'Mozilla/5.0 (compatible; WebScraper/1.0)'}
+            )
+            response.raise_for_status()
+            
             # Parse the HTML content using BeautifulSoup
             soup = BeautifulSoup(response.text, 'html.parser')
 
@@ -57,6 +64,13 @@ def scrape_text_and_crawl(root_url, max_pages=10):
                     absolute_url = urljoin(url, href)
                     # Recursively crawl the linked page
                     crawl(absolute_url)
+                    
+        except requests.exceptions.Timeout:
+            print(f"Timeout error crawling {url}")
+        except requests.exceptions.ConnectionError:
+            print(f"Connection error crawling {url}")
+        except requests.exceptions.HTTPError as e:
+            print(f"HTTP error {e.response.status_code} crawling {url}")
         except Exception as e:
             print(f"Error crawling {url}: {e}")
 

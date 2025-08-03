@@ -79,7 +79,8 @@
 </head>
 <!-- Settings Panel -->
 <div id="settings" style="position: fixed; top: 1rem; right: 1rem; background: #fff; padding: 1rem; border: 1px solid #ccc; border-radius: 8px;">
-  <h4>Settings</h4>
+  <h4 onclick="toggleSettings()" style="cursor: pointer; margin: 0 0 1rem 0;">Settings <span id="settingsToggle">▼</span></h4>
+  <div id="settingsContent">
   <label for="model_name">Model:
   <select id="model_name" name="model_name">
     {% for model in models %}
@@ -107,13 +108,31 @@
   <label>Top P:
     <input type="number" id="top_p" value="0.9" step="0.01" min="0" max="1">
   </label>
+  </div>
 </div>
 <body>
   <div id="chat"></div>
   <div id="input-form">
     <input type="text" id="query" placeholder="Type your message..." autofocus>
+    <button onclick="toggleDocuments()" title="Manage Documents">📄</button>
     <button onclick="sendMessage()">Send</button>
   </div>
+
+  <!-- Documents Popup -->
+  <div id="documentsPopup" style="display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #fff; padding: 2rem; border: 2px solid #ccc; border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.2); z-index: 1000; max-width: 400px; width: 90%;">
+    <h3 style="margin-top: 0;">Temporary Documents</h3>
+    <input type="file" id="fileInput" accept=".pdf,.txt,.md" style="margin-bottom: 1rem; width: 100%;">
+    <div style="margin-bottom: 1rem;">
+      <button onclick="uploadDocument()" style="padding: 0.5rem 1rem; margin-right: 0.5rem;">Upload</button>
+      <button onclick="clearTempDocs()" style="padding: 0.5rem 1rem; background: #dc3545; color: white;">Clear All</button>
+    </div>
+    <div id="uploadStatus" style="margin-bottom: 1rem; font-size: 0.9em;"></div>
+    <div id="tempDocsList" style="margin-bottom: 1rem; font-size: 0.9em; max-height: 200px; overflow-y: auto; border: 1px solid #eee; padding: 0.5rem; border-radius: 4px;"></div>
+    <button onclick="toggleDocuments()" style="padding: 0.5rem 1rem; background: #6c757d; color: white;">Close</button>
+  </div>
+
+  <!-- Popup Overlay -->
+  <div id="popupOverlay" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 999;" onclick="toggleDocuments()"></div>
 
   <script>
     const chat = document.getElementById("chat");
@@ -156,7 +175,14 @@
             top_k: topK
             })
         })
-        .then(res => res.json())
+        .then(res => {
+            if (!res.ok) {
+                return res.json().then(data => {
+                    throw new Error(data.error || 'Request failed');
+                });
+            }
+            return res.json();
+        })
         .then(data => {
             document.getElementById("loading").remove();
             addMessage("bot", data.response);
@@ -174,6 +200,109 @@
         e.preventDefault();
       }
     });
+
+    function uploadDocument() {
+        const fileInput = document.getElementById("fileInput");
+        const uploadStatus = document.getElementById("uploadStatus");
+        
+        if (!fileInput.files.length) {
+            uploadStatus.innerHTML = '<span style="color: red;">Please select a file</span>';
+            return;
+        }
+        
+        const formData = new FormData();
+        formData.append('file', fileInput.files[0]);
+        
+        uploadStatus.innerHTML = '<span style="color: blue;">Uploading...</span>';
+        
+        fetch('/api/upload', {
+            method: 'POST',
+            body: formData
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.message) {
+                uploadStatus.innerHTML = '<span style="color: green;">' + data.message + '</span>';
+                fileInput.value = ''; // Clear file input
+                loadTempDocs(); // Refresh temp docs list
+            } else {
+                uploadStatus.innerHTML = '<span style="color: red;">Error: ' + (data.error || 'Upload failed') + '</span>';
+            }
+        })
+        .catch(err => {
+            uploadStatus.innerHTML = '<span style="color: red;">Error: ' + err.message + '</span>';
+        });
+    }
+
+    function loadTempDocs() {
+        fetch('/api/temp-docs')
+        .then(res => res.json())
+        .then(data => {
+            const tempDocsList = document.getElementById('tempDocsList');
+            if (data.documents && data.documents.length > 0) {
+                const docList = data.documents.map(doc => 
+                    `<div style="padding: 0.25rem; border-bottom: 1px solid #eee;">
+                        <strong>${doc.filename}</strong> (${doc.source_type})<br>
+                        <small>${doc.total_chunks} chunks</small>
+                    </div>`
+                ).join('');
+                tempDocsList.innerHTML = '<strong>Loaded Documents:</strong><br>' + docList;
+            } else {
+                tempDocsList.innerHTML = '<em>No temporary documents loaded</em>';
+            }
+        })
+        .catch(err => {
+            console.log('Error loading temp docs:', err);
+        });
+    }
+
+    function clearTempDocs() {
+        if (!confirm('Clear all temporary documents?')) return;
+        
+        fetch('/api/temp-docs/clear', { method: 'POST' })
+        .then(res => res.json())
+        .then(data => {
+            if (data.message) {
+                document.getElementById('uploadStatus').innerHTML = '<span style="color: green;">' + data.message + '</span>';
+                loadTempDocs(); // Refresh temp docs list
+            }
+        })
+        .catch(err => {
+            document.getElementById('uploadStatus').innerHTML = '<span style="color: red;">Error clearing documents</span>';
+        });
+    }
+
+    function toggleSettings() {
+        const content = document.getElementById('settingsContent');
+        const toggle = document.getElementById('settingsToggle');
+        
+        if (content.style.display === 'none') {
+            content.style.display = 'block';
+            toggle.textContent = '▼';
+        } else {
+            content.style.display = 'none';
+            toggle.textContent = '▶';
+        }
+    }
+
+    function toggleDocuments() {
+        const popup = document.getElementById('documentsPopup');
+        const overlay = document.getElementById('popupOverlay');
+        
+        if (popup.style.display === 'none') {
+            popup.style.display = 'block';
+            overlay.style.display = 'block';
+            loadTempDocs(); // Refresh docs when opening
+        } else {
+            popup.style.display = 'none';
+            overlay.style.display = 'none';
+        }
+    }
+
+    // Load temp docs on page load
+    window.onload = function() {
+        loadTempDocs();
+    }
   </script>
 </body>
 </html>
