@@ -134,6 +134,7 @@ def chat_stream():
             
         top_k = int(data.get('top_k', 10))
         use_chromadb = data.get('use_chromadb', True)
+        include_logprobs = data.get('include_logprobs', False)
         
         model_kwargs = {
             "model": data.get('model_name', "qwen2.5vl:3b"),
@@ -154,7 +155,8 @@ def chat_stream():
                     verbose=True,
                     use_chromadb=use_chromadb,
                     use_temp_docs=True,
-                    model_kwargs=model_kwargs
+                    model_kwargs=model_kwargs,
+                    include_logprobs=include_logprobs
                 ):
                     # Store metadata for later use
                     if chunk['type'] == 'metadata':
@@ -214,13 +216,13 @@ def upload_document():
         if file.filename == '':
             return jsonify({"error": "No file selected"}), 400
         
-        # Check file type
-        allowed_extensions = {'.pdf', '.txt', '.md'}
+        # Check file type - expanded with LangChain support
+        allowed_extensions = {'.pdf', '.txt', '.md', '.docx', '.doc', '.csv', '.html', '.htm', '.pptx', '.ppt', '.xlsx', '.xls'}
         filename = secure_filename(file.filename)
         file_ext = os.path.splitext(filename)[1].lower()
         
         if file_ext not in allowed_extensions:
-            return jsonify({"error": f"Unsupported file type. Allowed: {', '.join(allowed_extensions)}"}), 400
+            return jsonify({"error": f"Unsupported file type. Allowed: {', '.join(sorted(allowed_extensions))}"}), 400
         
         # Save file temporarily
         file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
@@ -256,13 +258,13 @@ def upload_permanent_document():
         if file.filename == '':
             return jsonify({"error": "No file selected"}), 400
         
-        # Check file type
-        allowed_extensions = {'.pdf', '.txt', '.md'}
+        # Check file type - expanded with LangChain support
+        allowed_extensions = {'.pdf', '.txt', '.md', '.docx', '.doc', '.csv', '.html', '.htm', '.pptx', '.ppt', '.xlsx', '.xls'}
         filename = secure_filename(file.filename)
         file_ext = os.path.splitext(filename)[1].lower()
         
         if file_ext not in allowed_extensions:
-            return jsonify({"error": f"Unsupported file type. Allowed: {', '.join(allowed_extensions)}"}), 400
+            return jsonify({"error": f"Unsupported file type. Allowed: {', '.join(sorted(allowed_extensions))}"}), 400
         
         # Save file temporarily
         file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)

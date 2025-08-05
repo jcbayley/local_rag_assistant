@@ -3,10 +3,10 @@ Document Manager Class for RAG System
 
 Manages both persistent ChromaDB storage and temporary in-memory documents
 with a unified interface for searching and document management.
+Now using LangChain for document loading and text splitting.
 """
 
 import uuid
-import textwrap
 from pathlib import Path
 from typing import List, Dict, Tuple, Optional, Union
 import numpy as np
@@ -16,8 +16,16 @@ from sklearn.metrics.pairwise import cosine_similarity
 import chromadb
 from chromadb.utils.embedding_functions import SentenceTransformerEmbeddingFunction
 
-# Document processing imports
-import PyPDF2
+# LangChain imports
+from langchain_community.document_loaders import (
+    PyPDFLoader, TextLoader, UnstructuredWordDocumentLoader, 
+    CSVLoader, UnstructuredHTMLLoader, UnstructuredMarkdownLoader,
+    UnstructuredPowerPointLoader, UnstructuredExcelLoader
+)
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain.schema import Document
+
+# Embedding model for temporary documents
 from sentence_transformers import SentenceTransformer
 
 
@@ -85,31 +93,70 @@ class DocumentManager:
             self.embedding_model = SentenceTransformer(self.embedding_model_name)
         return self.embedding_model
     
-    def _chunk_text(self, text: str, max_tokens: int = 500) -> List[str]:
-        """Split text into chunks."""
-        return textwrap.wrap(text, width=max_tokens)
+    def _get_text_splitter(self, chunk_size: int = 500, chunk_overlap: int = 50) -> RecursiveCharacterTextSplitter:
+        """Get LangChain text splitter with configurable parameters."""
+        return RecursiveCharacterTextSplitter(
+            chunk_size=chunk_size,
+            chunk_overlap=chunk_overlap,
+            length_function=len,
+            separators=["\n\n", "\n", " ", ""]
+        )
     
-    def _extract_text_from_pdf(self, pdf_path: Union[str, Path]) -> str:
-        """Extract text from PDF file."""
+    def _load_document(self, file_path: Union[str, Path]) -> List[Document]:
+        """Load document using LangChain loaders with support for multiple file types."""
         try:
-            with open(pdf_path, 'rb') as file:
-                pdf_reader = PyPDF2.PdfReader(file)
-                text = ""
-                for page in pdf_reader.pages:
-                    text += page.extract_text() + "\n"
-            return text.strip()
+            file_path = Path(file_path)
+            file_extension = file_path.suffix.lower()
+            
+            # Map file extensions to loaders and source types
+            loader_map = {
+                '.pdf': (PyPDFLoader, 'PDF'),
+                '.txt': (TextLoader, 'Text'),
+                '.md': (UnstructuredMarkdownLoader, 'Markdown'),
+                '.docx': (UnstructuredWordDocumentLoader, 'Word Document'),
+                '.doc': (UnstructuredWordDocumentLoader, 'Word Document'),
+                '.csv': (CSVLoader, 'CSV'),
+                '.html': (UnstructuredHTMLLoader, 'HTML'),
+                '.htm': (UnstructuredHTMLLoader, 'HTML'),
+                '.pptx': (UnstructuredPowerPointLoader, 'PowerPoint'),
+                '.ppt': (UnstructuredPowerPointLoader, 'PowerPoint'),
+                '.xlsx': (UnstructuredExcelLoader, 'Excel'),
+                '.xls': (UnstructuredExcelLoader, 'Excel')
+            }
+            
+            if file_extension not in loader_map:
+                raise ValueError(f"Unsupported file type: {file_extension}. Supported types: {', '.join(loader_map.keys())}")
+            
+            loader_class, source_type = loader_map[file_extension]
+            
+            # Initialize loader with appropriate parameters
+            if file_extension in ['.txt', '.md']:
+                loader = loader_class(str(file_path), encoding='utf-8')
+            elif file_extension == '.csv':
+                loader = loader_class(str(file_path), encoding='utf-8')
+            else:
+                loader = loader_class(str(file_path))
+            
+            # Load documents
+            documents = loader.load()
+            
+            if not documents:
+                raise ValueError(f"No content could be extracted from {file_path.name}")
+            
+            # Add enhanced metadata to all documents
+            for doc in documents:
+                doc.metadata.update({
+                    'filename': file_path.name,
+                    'source_type': source_type,
+                    'file_extension': file_extension,
+                    'file_size': file_path.stat().st_size if file_path.exists() else 0
+                })
+            
+            return documents
+            
         except Exception as e:
-            print(f"Error reading PDF {pdf_path}: {e}")
-            return ""
-    
-    def _extract_text_from_file(self, file_path: Union[str, Path]) -> str:
-        """Extract text from text file."""
-        try:
-            with open(file_path, 'r', encoding='utf-8') as file:
-                return file.read().strip()
-        except Exception as e:
-            print(f"Error reading text file {file_path}: {e}")
-            return ""
+            print(f"Error loading document {file_path}: {e}")
+            return []
     
     # === ChromaDB Methods ===
     
@@ -130,33 +177,32 @@ class DocumentManager:
             file_path = Path(file_path)
             filename = file_path.name
             
-            # Extract text based on file type
-            if file_path.suffix.lower() == '.pdf':
-                text = self._extract_text_from_pdf(file_path)
-                source_type = "PDF"
-            elif file_path.suffix.lower() in ['.txt', '.md']:
-                text = self._extract_text_from_file(file_path)
-                source_type = "Text"
-            else:
-                return False, f"Unsupported file type: {file_path.suffix}"
+            # Load document using LangChain
+            documents = self._load_document(file_path)
+            if not documents:
+                return False, f"No content loaded from {filename}"
             
-            if not text:
-                return False, f"No text extracted from {filename}"
+            # Split documents into chunks
+            text_splitter = self._get_text_splitter(chunk_size=500, chunk_overlap=50)
+            chunks = text_splitter.split_documents(documents)
             
-            # Split into chunks
-            chunks = self._chunk_text(text, max_tokens=500)
+            if not chunks:
+                return False, f"No chunks created from {filename}"
             
             # Add chunks to ChromaDB
             for i, chunk in enumerate(chunks):
                 chunk_id = f"{filename}-{i}-{uuid.uuid4()}"
+                
+                # Prepare metadata
+                metadata = chunk.metadata.copy()
+                metadata.update({
+                    'url': f"file://{file_path.absolute()}",
+                    'chunk_index': i
+                })
+                
                 self.chromadb_collection.add(
-                    documents=[chunk],
-                    metadatas=[{
-                        'url': f"file://{file_path.absolute()}",
-                        'filename': filename,
-                        'source_type': source_type,
-                        'chunk_index': i
-                    }],
+                    documents=[chunk.page_content],
+                    metadatas=[metadata],
                     ids=[chunk_id]
                 )
             
@@ -204,38 +250,38 @@ class DocumentManager:
             file_path = Path(file_path)
             filename = file_path.name
             
-            # Extract text based on file type
-            if file_path.suffix.lower() == '.pdf':
-                text = self._extract_text_from_pdf(file_path)
-                source_type = "PDF"
-            elif file_path.suffix.lower() in ['.txt', '.md']:
-                text = self._extract_text_from_file(file_path)
-                source_type = "Text"
-            else:
-                return False, f"Unsupported file type: {file_path.suffix}"
+            # Load document using LangChain
+            documents = self._load_document(file_path)
+            if not documents:
+                return False, f"No content loaded from {filename}"
             
-            if not text:
-                return False, f"No text extracted from {filename}"
+            # Split documents into chunks
+            text_splitter = self._get_text_splitter(chunk_size=500, chunk_overlap=50)
+            chunks = text_splitter.split_documents(documents)
             
-            # Split into chunks and create embeddings
-            chunks = self._chunk_text(text, max_tokens=500)
+            if not chunks:
+                return False, f"No chunks created from {filename}"
+            
+            # Create embeddings for chunks
             model = self._get_embedding_model()
-            
             doc_id = str(uuid.uuid4())
             chunk_data = []
             
             for i, chunk in enumerate(chunks):
-                embedding = model.encode([chunk])[0]
+                embedding = model.encode([chunk.page_content])[0]
+                
+                # Prepare metadata
+                metadata = chunk.metadata.copy()
+                metadata.update({
+                    'chunk_index': i,
+                    'doc_id': doc_id
+                })
+                
                 chunk_data.append({
                     'id': f"{doc_id}-{i}",
-                    'text': chunk,
+                    'text': chunk.page_content,
                     'embedding': embedding,
-                    'metadata': {
-                        'filename': filename,
-                        'source_type': source_type,
-                        'chunk_index': i,
-                        'doc_id': doc_id
-                    }
+                    'metadata': metadata
                 })
             
             # Add to temporary storage

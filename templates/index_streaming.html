@@ -108,6 +108,39 @@
     .toggle-button.active {
       background: #28a745;
     }
+
+    .probability-word {
+      display: inline;
+      padding: 1px 1px;
+      border-radius: 2px;
+      cursor: help;
+      position: relative;
+      font-weight: normal;
+      transition: opacity 0.2s ease;
+    }
+    
+    .probability-word:hover {
+      opacity: 0.8;
+    }
+
+    .probability-tooltip {
+      visibility: hidden;
+      background: #333;
+      color: white;
+      text-align: center;
+      border-radius: 6px;
+      padding: 5px;
+      position: absolute;
+      z-index: 1;
+      bottom: 100%;
+      left: 50%;
+      margin-left: -50px;
+      font-size: 12px;
+    }
+
+    .probability-word:hover .probability-tooltip {
+      visibility: visible;
+    }
   </style>
 </head>
 
@@ -119,6 +152,11 @@
   <!-- Streaming Toggle -->
   <button id="streamingToggle" class="toggle-button active" onclick="toggleStreaming()">
     🔴 Streaming ON
+  </button>
+  
+  <!-- Log Probabilities Toggle -->
+  <button id="logprobsToggle" class="toggle-button" onclick="toggleLogProbs()">
+    🎯 Log Probs OFF
   </button>
   
   <!-- Database Selection -->
@@ -201,6 +239,7 @@
     const chat = document.getElementById("chat");
     const input = document.getElementById("query");
     let streamingEnabled = true;
+    let logprobsEnabled = false;
     let currentEventSource = null;
 
     function addMessage(sender, text, isStreaming = false) {
@@ -251,7 +290,8 @@
                     query: text,
                     model_name: modelName,
                     top_k: topK,
-                    use_chromadb: useChromaDB
+                    use_chromadb: useChromaDB,
+                    include_logprobs: logprobsEnabled
                 })
             });
 
@@ -278,7 +318,20 @@
                             if (data.type === 'metadata') {
                                 console.log(`Found ${data.sources_count} sources`);
                             } else if (data.type === 'content') {
-                                fullContent += data.chunk;
+                                if (logprobsEnabled && data.logprobs) {
+                                    // Debug: log the logprobs data
+                                    console.log('Received logprobs:', data.logprobs);
+                                    console.log('Chunk text:', data.chunk);
+                                    
+                                    // Apply color coding based on log probabilities
+                                    const coloredChunk = applyProbabilityColors(data.chunk, data.logprobs);
+                                    fullContent += coloredChunk;
+                                } else {
+                                    if (logprobsEnabled) {
+                                        console.log('Log probs enabled but no logprobs data received');
+                                    }
+                                    fullContent += data.chunk;
+                                }
                                 streamingContent.innerHTML = fullContent + "<span class='cursor'>|</span>";
                             } else if (data.type === 'complete') {
                                 // Remove cursor and finalize
@@ -353,6 +406,79 @@
                 currentEventSource = null;
             }
         }
+    }
+
+    function toggleLogProbs() {
+        logprobsEnabled = !logprobsEnabled;
+        const button = document.getElementById('logprobsToggle');
+        
+        if (logprobsEnabled) {
+            button.innerHTML = '🎯 Log Probs ON';
+            button.classList.add('active');
+        } else {
+            button.innerHTML = '🎯 Log Probs OFF';
+            button.classList.remove('active');
+        }
+    }
+
+    function applyProbabilityColors(text, logprobs) {
+        if (!logprobs) {
+            return text;
+        }
+        
+        // Handle different possible logprobs formats from Ollama
+        let tokenProbs = [];
+        
+        if (Array.isArray(logprobs)) {
+            // Format: array of {token, logprob}
+            tokenProbs = logprobs;
+        } else if (logprobs.tokens && Array.isArray(logprobs.tokens)) {
+            // Format: {tokens: [{token, logprob, ...}]}
+            tokenProbs = logprobs.tokens;
+        } else {
+            return text;
+        }
+        
+        if (tokenProbs.length === 0) {
+            return text;
+        }
+        
+        // Extract logprob values and calculate range
+        const logprobValues = tokenProbs.map(tp => tp.logprob || tp.log_prob || -5);
+        const maxLogProb = Math.max(...logprobValues, -0.1);
+        const minLogProb = Math.min(...logprobValues, -10);
+        
+        let coloredText = '';
+        
+        // Apply colors to each token
+        for (let i = 0; i < tokenProbs.length; i++) {
+            const tokenData = tokenProbs[i];
+            const token = tokenData.token || tokenData.text || text.charAt(i) || '';
+            const logprob = tokenData.logprob || tokenData.log_prob || minLogProb;
+            
+            // Normalize probability (0 = low confidence/red, 1 = high confidence/green)
+            const normalized = (logprob - minLogProb) / (maxLogProb - minLogProb || 1);
+            const clampedProb = Math.max(0, Math.min(1, normalized));
+            
+            // Create red to green gradient with better visibility
+            const red = Math.round(255 * (1 - clampedProb));
+            const green = Math.round(200 * clampedProb + 55); // Ensure green is visible
+            const blue = Math.round(50 * clampedProb); // Add slight blue tint
+            
+            const backgroundColor = `rgb(${red}, ${green}, ${blue})`;
+            const textColor = clampedProb > 0.5 ? 'white' : 'black';
+            const probValue = Math.exp(logprob).toFixed(3);
+            
+            coloredText += `<span class="probability-word" style="background-color: ${backgroundColor}; color: ${textColor};" title="Token: '${token}' | Probability: ${probValue}">${token}</span>`;
+        }
+        
+        // If we have remaining text that wasn't covered by tokens, add it normally
+        if (text.length > coloredText.replace(/<[^>]*>/g, '').length) {
+            const remainingText = text.slice(coloredText.replace(/<[^>]*>/g, '').length);
+            coloredText += remainingText;
+        }
+        
+        return coloredText;
     }
 
     // Press Enter to send
