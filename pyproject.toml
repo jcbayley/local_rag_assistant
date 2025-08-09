@@ -54,7 +54,8 @@ dependencies = [
 
 
 [project.scripts]
-rag-assistant = "local_rag_assistant.app.app:main"
+rag-assistant-ui = "local_rag_assistant.app.app:main"
+rag-assistant = "local_rag_assistant.app.cli:main"
 rag-scrape = "local_rag_assistant.scrape_web:main"
 rag-database = "local_rag_assistant.data.rag_database_cli:main"
 

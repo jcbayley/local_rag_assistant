@@ -37,7 +37,11 @@ rag-assistant
 ```
 
 ### 4. Open Your Browser
-Navigate to `http://localhost:5000`
+```bash
+rag-assistant-ui
+```
+
+Then navigate to `http://localhost:5000`
 
 ## Usage Guide
 
