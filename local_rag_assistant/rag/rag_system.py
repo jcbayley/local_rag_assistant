@@ -8,7 +8,10 @@ Now using LangChain for enhanced RAG capabilities.
 import requests
 import json
 import argparse
+from typing import Union, Optional
 from local_rag_assistant.data.document_manager import DocumentManager
+from local_rag_assistant.backends.ollama_backend import OllamaBackend
+from local_rag_assistant.backends.transformers_backend import TransformersBackend
 
 # LangChain imports
 from langchain.prompts import PromptTemplate
@@ -19,20 +22,35 @@ from langchain.schema.output_parser import StrOutputParser
 class RAGSystem:
     """
     RAG (Retrieval Augmented Generation) system using DocumentManager for context retrieval
-    and Ollama for text generation, enhanced with LangChain components.
+    and configurable backends for text generation, enhanced with LangChain components.
     """
     
     def __init__(self, document_manager: DocumentManager, 
-                 ollama_url: str = "http://localhost:11434/api/generate"):
+                 backend: str = "ollama",
+                 ollama_url: str = "http://localhost:11434",
+                 hf_model_name: str = "microsoft/DialoGPT-small"):
         """
         Initialize RAG system.
         
         Args:
             document_manager: DocumentManager instance for handling documents
-            ollama_url: URL for Ollama API endpoint
+            backend: Backend to use ("ollama" or "transformers")
+            ollama_url: Base URL for Ollama API
+            hf_model_name: HuggingFace model name for transformers backend
         """
         self.doc_manager = document_manager
-        self.ollama_url = ollama_url
+        self.backend_type = backend
+        
+        # Initialize the selected backend
+        if backend == "ollama":
+            self.backend = OllamaBackend(base_url=ollama_url)
+        elif backend == "transformers":
+            self.backend = TransformersBackend(model_name=hf_model_name)
+        else:
+            raise ValueError(f"Unsupported backend: {backend}. Use 'ollama' or 'transformers'")
+            
+        # Keep ollama_url for backward compatibility
+        self.ollama_url = f"{ollama_url}/api/generate" if backend == "ollama" else None
         self._setup_prompt_template()
     
     def _setup_prompt_template(self):
@@ -97,75 +115,58 @@ Provide a bulleted answer with source references and format in markdown. Answer 
                           timeout: int = 120, stream: bool = False, 
                           include_logprobs: bool = False):
         """
-        Get response from Ollama language model.
+        Get response from the configured backend.
         
         Args:
             prompt: Input prompt for the model
-            model: Model name to use
+            model: Model name to use (for Ollama backend)
             temperature: Sampling temperature
             max_tokens: Maximum tokens to generate
-            repeat_penalty: Repetition penalty
+            repeat_penalty: Repetition penalty (Ollama only)
             top_p: Top-p sampling parameter
-            timeout: Request timeout in seconds
+            timeout: Request timeout in seconds (Ollama only)
             stream: If True, returns generator for streaming; if False, returns complete string
-            include_logprobs: If True, request token probabilities from Ollama
+            include_logprobs: If True, request token probabilities (Ollama only)
             
         Returns:
-            Generated text response (str) or generator for streaming (with optional logprobs)
+            Generated text response (str) or generator for streaming
         """
         try:
-            # Build request payload
-            payload = {
-                "model": model,
-                "prompt": prompt,
-                "options": {
-                    "temperature": temperature,
-                    "max_tokens": max_tokens,
-                    "repeat_penalty": repeat_penalty,
-                    # "top_p": top_p,  # Commented as in original
-                }
-            }
-            
-            # Add logprobs request if needed
-            if include_logprobs:
-                payload["options"]["logprobs"] = True
-                payload["options"]["top_logprobs"] = 5  # Get top 5 token probabilities
-            
-            response = requests.post(self.ollama_url, json=payload, stream=True, timeout=timeout)
-            
-            response.raise_for_status()
-            
-            if stream:
-                # Return generator for streaming
-                return self._stream_response(response, include_logprobs=include_logprobs)
-            else:
-                # Return complete response as before
-                full_response = ""
-                for line in response.iter_lines():
-                    if line:
-                        try:
-                            data = line.decode("utf-8")
-                            json_obj = json.loads(data)
-                            if "response" in json_obj:
-                                full_response += json_obj["response"]
-                        except (json.JSONDecodeError, UnicodeDecodeError) as e:
-                            print(f"Warning: Failed to parse response line: {e}")
-                            continue
-
-                return full_response
-            
-        except requests.exceptions.Timeout:
-            print("Error: Request to Ollama timed out (consider reducing max_tokens or checking Ollama status)")
-            return "Error: Request timed out. The query may be too complex or Ollama may be overloaded."
-        except requests.exceptions.ConnectionError:
-            print("Error: Could not connect to Ollama. Is it running?")
-            return "Error: Could not connect to Ollama"
-        except requests.exceptions.RequestException as e:
-            print(f"Error: Request failed: {e}")
-            return "Error: Request failed"
+            if self.backend_type == "ollama":
+                return self._get_ollama_response(
+                    prompt, model, temperature, max_tokens, repeat_penalty, 
+                    top_p, timeout, stream, include_logprobs
+                )
+            else:  # transformers
+                return self.backend.generate_response(
+                    prompt=prompt,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    top_p=top_p,
+                    stream=stream
+                )
         except Exception as e:
-            print(f"Unexpected error in get_model_response: {e}")
-            return "Error: Unexpected error occurred"
+            error_msg = f"Error generating response: {str(e)}"
+            if stream:
+                return self._error_generator(error_msg)
+            return error_msg
+    
+    def _get_ollama_response(self, prompt, model, temperature, max_tokens, 
+                           repeat_penalty, top_p, timeout, stream, include_logprobs):
+        """Get response from Ollama backend with legacy support."""
+        return self.backend.generate_response(
+            prompt=prompt,
+            model=model,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            stream=stream,
+            repeat_penalty=repeat_penalty,
+            top_p=top_p
+        )
+    
+    def _error_generator(self, error_msg: str):
+        """Generate error message for streaming."""
+        yield error_msg
     
     def query(self, query: str, top_k: int = 10, verbose: bool = False,
               use_chromadb: bool = True, use_temp_docs: bool = True,
@@ -294,11 +295,20 @@ Provide a bulleted answer with source references and format in markdown. Answer 
     
     def get_status(self) -> dict:
         """Get current status of the RAG system."""
-        return {
+        status = {
             'rag_system': 'active',
-            'ollama_url': self.ollama_url,
+            'backend_type': self.backend_type,
+            'backend_available': self.backend.is_available(),
             'document_manager': self.doc_manager.get_status()
         }
+        
+        # Add backend-specific info
+        if self.backend_type == "ollama":
+            status['ollama_url'] = self.ollama_url
+        elif self.backend_type == "transformers":
+            status['model_info'] = self.backend.get_model_info()
+            
+        return status
 
 
 
@@ -309,17 +319,30 @@ if __name__ == "__main__":
     parser.add_argument("--top-k", "-k", type=int, default=10, help="Number of documents to retrieve.")
     parser.add_argument("--no-chromadb", action="store_true", help="Disable ChromaDB search.")
     parser.add_argument("--no-temp", action="store_true", help="Disable temporary document search.")
+    parser.add_argument("--backend", "-b", type=str, choices=["ollama", "transformers"], 
+                       default="ollama", help="Backend to use for text generation.")
+    parser.add_argument("--ollama-url", type=str, default="http://localhost:11434",
+                       help="Ollama base URL.")
+    parser.add_argument("--hf-model", type=str, default="microsoft/DialoGPT-small",
+                       help="HuggingFace model name for transformers backend.")
     
     args = parser.parse_args()
 
     # Create RAG system
     doc_manager = DocumentManager()
-    rag = RAGSystem(doc_manager)
+    rag = RAGSystem(
+        doc_manager, 
+        backend=args.backend,
+        ollama_url=args.ollama_url,
+        hf_model_name=args.hf_model
+    )
     
     # Print status
     if args.verbose:
         print("RAG System Status:")
-        print(f"Document Manager: {doc_manager}")
+        status = rag.get_status()
+        for key, value in status.items():
+            print(f"  {key}: {value}")
         print()
     
     # Run query
