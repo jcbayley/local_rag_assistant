@@ -367,8 +367,10 @@ def switch_database():
         print(f"Error switching database: {e}")
         return jsonify({"error": "Failed to switch database"}), 500
 
-
-if __name__ == '__main__':
+def main():
     print("Starting RAG System with DocumentManager")
     print(f"Document Manager Status: {document_manager}")
     app.run(debug=True)
+
+if __name__ == '__main__':
+    main()

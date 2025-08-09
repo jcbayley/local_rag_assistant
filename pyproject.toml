@@ -1,0 +1,65 @@
+[build-system]
+requires = ["setuptools>=45", "wheel", "setuptools-scm"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "local_rag_assistant"
+version = "0.1.0"
+description = "A local RAG (Retrieval Augmented Generation) system with web interface"
+authors = [
+    {name = "Joseph Bayley"}
+]
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.8"
+keywords = ["rag", "llm", "ai", "document", "search", "chromadb", "langchain"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Text Processing :: Indexing",
+]
+
+dependencies = [
+    "flask>=2.3.0",
+    "werkzeug>=2.3.0",
+    "langchain>=0.1.0",
+    "langchain-community>=0.0.20",
+    "chromadb>=0.4.0",
+    "sentence-transformers>=2.2.0",
+    "pypdf>=3.0.0",
+    "python-docx>=0.8.11",
+    "openpyxl>=3.1.0",
+    "python-pptx>=0.6.21",
+    "unstructured[local-inference]>=0.10.0",
+    "scikit-learn>=1.3.0",
+    "numpy>=1.24.0",
+    "pandas>=2.0.0",
+    "requests>=2.31.0",
+    "urllib3>=1.26.0",
+    "markdown>=3.4.0",
+    "pathlib2>=2.3.0; python_version<'3.4'",
+    "uuid>=1.30; python_version<'3.7'",
+    "scrapy>=2.10.0",
+    "beautifulsoup4>=4.12.0",
+    "lxml>=4.9.0",
+]
+
+
+[project.scripts]
+rag-assistant = "local_rag_assistant.app.app:main"
+rag-scrape = "local_rag_assistant.scrape_web:main"
+
+[tool.setuptools.packages.find]
+include = ["local_rag_assistant*"]
+exclude = ["tests*", "docs*"]
+
+[tool.setuptools.package-data]
+"local_rag_assistant" = ["templates/*.html", "static/*"]
+
