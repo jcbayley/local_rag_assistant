@@ -121,7 +121,15 @@ class DocumentManager:
                 '.pptx': (UnstructuredPowerPointLoader, 'PowerPoint'),
                 '.ppt': (UnstructuredPowerPointLoader, 'PowerPoint'),
                 '.xlsx': (UnstructuredExcelLoader, 'Excel'),
-                '.xls': (UnstructuredExcelLoader, 'Excel')
+                '.xls': (UnstructuredExcelLoader, 'Excel'),
+                '.py': (TextLoader, 'Python'),
+                '.cpp': (TextLoader, 'C++'),
+                '.cc': (TextLoader, 'C++'),
+                '.cxx': (TextLoader, 'C++'),
+                '.c': (TextLoader, 'C'),
+                '.h': (TextLoader, 'C Header'),
+                '.hpp': (TextLoader, 'C++ Header'),
+                '.hxx': (TextLoader, 'C++ Header')
             }
             
             if file_extension not in loader_map:

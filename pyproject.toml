@@ -49,12 +49,14 @@ dependencies = [
     "scrapy>=2.10.0",
     "beautifulsoup4>=4.12.0",
     "lxml>=4.9.0",
+    "scikit-learn"
 ]
 
 
 [project.scripts]
 rag-assistant = "local_rag_assistant.app.app:main"
 rag-scrape = "local_rag_assistant.scrape_web:main"
+rag-database = "local_rag_assistant.data.rag_database_cli:main"
 
 [tool.setuptools.packages.find]
 include = ["local_rag_assistant*"]
