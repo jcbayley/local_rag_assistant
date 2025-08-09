@@ -13,7 +13,7 @@ import json
 import os
 from werkzeug.utils import secure_filename
 
-app = Flask(__name__)
+app = Flask(__name__, template_folder='../templates')
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max file size
 app.config['UPLOAD_FOLDER'] = 'uploads'
 
@@ -70,7 +70,7 @@ def get_ollama_models():
 def index():
     """Main page with chat interface."""
     models = get_ollama_models()
-    return render_template("./index_streaming.html", models=models)
+    return render_template("index_streaming.html", models=models)
 
 
 @app.route('/api/chat', methods=['POST'])
