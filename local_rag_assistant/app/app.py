@@ -87,7 +87,7 @@ def chat():
         
         model_kwargs = {
             "model": data.get('model_name', "smollm2:135m"),
-            "temperature": float(data.get('temperature', 0.1)),
+            "temperature": float(data.get('temperature', 0.4)),
             "max_tokens": int(data.get('max_tokens', 100)),
             "repeat_penalty": float(data.get('repeat_penalty', 1.4)),
             "top_p": float(data.get('top_p', 0.9))
@@ -138,7 +138,7 @@ def chat_stream():
         
         model_kwargs = {
             "model": data.get('model_name', "smollm2:135m"),
-            "temperature": float(data.get('temperature', 0.1)),
+            "temperature": float(data.get('temperature', 0.4)),
             "max_tokens": int(data.get('max_tokens', 100)),
             "repeat_penalty": float(data.get('repeat_penalty', 1.4)),
             "top_p": float(data.get('top_p', 0.9))

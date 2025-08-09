@@ -92,7 +92,7 @@ Provide a bulleted answer with source references and format in markdown. Answer 
                 yield f"Error in streaming: {str(e)}"
     
     def get_model_response(self, prompt: str, model: str = "smollm2:135m", 
-                          temperature: float = 0.1, max_tokens: int = 500, 
+                          temperature: float = 0.4, max_tokens: int = 500, 
                           repeat_penalty: float = 1.3, top_p: float = 0.9,
                           timeout: int = 120, stream: bool = False, 
                           include_logprobs: bool = False):
