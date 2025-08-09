@@ -5,8 +5,8 @@ Clean implementation using proper class-based document management.
 """
 
 from flask import Flask, request, jsonify, render_template, Response
-from document_manager import DocumentManager
-from rag_system_refactored import RAGSystem
+from local_rag_assistant.data.document_manager import DocumentManager
+from local_rag_assistant.rag.rag_system import RAGSystem
 import markdown
 import subprocess
 import json
@@ -39,31 +39,31 @@ def get_ollama_models():
         if result.returncode != 0:
             print(f"Warning: ollama command failed with return code {result.returncode}")
             print(f"stderr: {result.stderr}")
-            return ["qwen2.5vl:3b"]  # fallback model
+            return ["smollm2:135m"]  # fallback model
         
         lines = result.stdout.strip().split("\n")
         if len(lines) < 2:
             print("Warning: No models found in ollama output")
-            return ["qwen2.5vl:3b"]  # fallback model
+            return ["smollm2:135m"]  # fallback model
 
         # Skip the header line and parse model names
         models = [line.split()[0] for line in lines[1:] if line.strip()]
         
         if not models:
             print("Warning: No valid models parsed from ollama output")
-            return ["qwen2.5vl:3b"]  # fallback model
+            return ["smollm2:135m"]  # fallback model
             
         return models
         
     except subprocess.TimeoutExpired:
         print("Error: ollama command timed out")
-        return ["qwen2.5vl:3b"]  # fallback model
+        return ["smollm2:135m"]  # fallback model
     except FileNotFoundError:
         print("Error: ollama command not found. Is ollama installed?")
-        return ["qwen2.5vl:3b"]  # fallback model
+        return ["smollm2:135m"]  # fallback model
     except Exception as e:
         print(f"Error fetching ollama models: {e}")
-        return ["qwen2.5vl:3b"]  # fallback model
+        return ["smollm2:135m"]  # fallback model
 
 
 @app.route('/', methods=['GET'])
@@ -86,7 +86,7 @@ def chat():
         use_chromadb = data.get('use_chromadb', True)
         
         model_kwargs = {
-            "model": data.get('model_name', "qwen2.5vl:3b"),
+            "model": data.get('model_name', "smollm2:135m"),
             "temperature": float(data.get('temperature', 0.1)),
             "max_tokens": int(data.get('max_tokens', 100)),
             "repeat_penalty": float(data.get('repeat_penalty', 1.4)),
@@ -137,7 +137,7 @@ def chat_stream():
         include_logprobs = data.get('include_logprobs', False)
         
         model_kwargs = {
-            "model": data.get('model_name', "qwen2.5vl:3b"),
+            "model": data.get('model_name', "smollm2:135m"),
             "temperature": float(data.get('temperature', 0.1)),
             "max_tokens": int(data.get('max_tokens', 100)),
             "repeat_penalty": float(data.get('repeat_penalty', 1.4)),

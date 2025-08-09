@@ -8,7 +8,7 @@ Now using LangChain for enhanced RAG capabilities.
 import requests
 import json
 import argparse
-from document_manager import DocumentManager
+from local_rag_assistant.data.document_manager import DocumentManager
 
 # LangChain imports
 from langchain.prompts import PromptTemplate
@@ -49,42 +49,6 @@ Query: {query}
 
 Provide a bulleted answer with source references and format in markdown. Answer with references to sources:"""
         )
-    
-    def _create_simulated_logprobs(self, text):
-        """
-        Create simulated log probabilities for demonstration when Ollama doesn't provide them.
-        This creates realistic-looking probabilities based on text characteristics.
-        """
-        import random
-        import math
-        
-        tokens = []
-        words = text.split()
-        
-        for word in words:
-            # Simulate probabilities based on word characteristics
-            if word.lower() in ['the', 'and', 'a', 'an', 'is', 'are', 'was', 'were', 'to', 'of', 'in', 'on', 'at']:
-                # Common words get higher probability
-                base_prob = random.uniform(0.7, 0.95)
-            elif len(word) <= 3:
-                # Short words get medium-high probability
-                base_prob = random.uniform(0.5, 0.8)
-            elif word.isdigit():
-                # Numbers get lower probability (more specific)
-                base_prob = random.uniform(0.3, 0.6)
-            else:
-                # Other words get varied probabilities
-                base_prob = random.uniform(0.2, 0.9)
-            
-            # Convert to log probability
-            logprob = math.log(base_prob)
-            
-            tokens.append({
-                "token": word,
-                "logprob": logprob
-            })
-        
-        return tokens
 
     def _stream_response(self, response, include_logprobs=False):
         """
@@ -111,11 +75,6 @@ Provide a bulleted answer with source references and format in markdown. Answer 
                             # Return full data including logprobs if available
                             logprobs_data = json_obj.get("logprobs", None)
                             
-                            # If no logprobs from Ollama, create simulated ones for demo
-                            if logprobs_data is None and json_obj["response"]:
-                                print("No logprobs from Ollama, creating simulated ones")
-                                logprobs_data = self._create_simulated_logprobs(json_obj["response"])
-                            
                             yield {
                                 "text": json_obj["response"],
                                 "logprobs": logprobs_data
@@ -132,7 +91,7 @@ Provide a bulleted answer with source references and format in markdown. Answer 
             else:
                 yield f"Error in streaming: {str(e)}"
     
-    def get_model_response(self, prompt: str, model: str = "qwen2.5vl:3b", 
+    def get_model_response(self, prompt: str, model: str = "smollm2:135m", 
                           temperature: float = 0.1, max_tokens: int = 500, 
                           repeat_penalty: float = 1.3, top_p: float = 0.9,
                           timeout: int = 120, stream: bool = False, 
@@ -227,7 +186,7 @@ Provide a bulleted answer with source references and format in markdown. Answer 
         """
         if model_kwargs is None:
             model_kwargs = {
-                "model": "qwen2.5vl:3b",
+                "model": "smollm2:135m",
                 "temperature": 0.1,
                 "max_tokens": 1000,
                 "repeat_penalty": 1.2,
@@ -275,7 +234,7 @@ Provide a bulleted answer with source references and format in markdown. Answer 
         """
         if model_kwargs is None:
             model_kwargs = {
-                "model": "qwen2.5vl:3b",
+                "model": "smollm2:135m",
                 "temperature": 0.1,
                 "max_tokens": 1000,
                 "repeat_penalty": 1.2,
@@ -341,27 +300,6 @@ Provide a bulleted answer with source references and format in markdown. Answer 
             'document_manager': self.doc_manager.get_status()
         }
 
-
-# Global instance for backward compatibility
-document_manager = DocumentManager()
-rag_system_instance = RAGSystem(document_manager)
-
-
-def rag_system(query: str, top_k: int = 10, verbose: bool = False,
-               model_kwargs: dict = None, use_chromadb: bool = True) -> tuple:
-    """
-    Backward compatible function that uses the class-based implementation.
-    
-    This maintains compatibility with existing code while using the new architecture.
-    """
-    return rag_system_instance.query(
-        query=query,
-        top_k=top_k,
-        verbose=verbose,
-        use_chromadb=use_chromadb,
-        use_temp_docs=True,  # Always use temp docs for backward compatibility
-        model_kwargs=model_kwargs
-    )
 
 
 if __name__ == "__main__":

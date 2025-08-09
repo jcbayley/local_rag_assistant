@@ -361,13 +361,13 @@ class DocumentManager:
         self.temp_documents = [doc for doc in self.temp_documents if doc['doc_id'] != doc_id]
         return True
     
-    # === Unified Search Methods ===
+    # === Combined Search Methods ===
     
     def search(self, query: str, top_k: int = 10, 
                use_chromadb: bool = True, 
                use_temp_docs: bool = True) -> Tuple[str, List[Dict]]:
         """
-        Unified search across both ChromaDB and temporary documents.
+        Combined search across both ChromaDB and temporary documents.
         
         Args:
             query: Search query
