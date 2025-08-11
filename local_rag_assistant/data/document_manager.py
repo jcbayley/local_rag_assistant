@@ -28,6 +28,7 @@ from langchain.schema import Document
 # Embedding model for temporary documents
 from sentence_transformers import SentenceTransformer
 
+import traceback
 
 class DocumentManager:
     """
@@ -296,7 +297,7 @@ class DocumentManager:
             temp_doc = {
                 'doc_id': doc_id,
                 'filename': filename,
-                'source_type': source_type,
+                'source_type': file_path.suffix.lower(),
                 'chunks': chunk_data,
                 'total_chunks': len(chunks)
             }
@@ -306,7 +307,7 @@ class DocumentManager:
             return True, f"Successfully loaded {filename} as temporary document ({len(chunks)} chunks)"
             
         except Exception as e:
-            return False, f"Error processing temporary document: {str(e)}"
+            return False, f"Error processing temporary document: {str(e)} : traceback: {traceback.format_exc()}"
     
     def search_temp_documents(self, query: str, top_k: int = 5) -> Tuple[List[str], List[Dict]]:
         """
@@ -414,13 +415,18 @@ class DocumentManager:
         all_documents = all_documents[:top_k]
         all_metadata = all_metadata[:top_k]
         
-        # Format context
-        context = "\n\n".join(
-            f"Document {i+1}\n"
-            f"Source: {all_metadata[i].get('filename', all_metadata[i].get('url', 'Unknown'))}\n"
-            f"Content: {all_documents[i]}" 
-            for i in range(len(all_documents))
-        )
+        # Format context with better document tracking
+        context_parts = []
+        for i in range(len(all_documents)):
+            filename = all_metadata[i].get('filename', all_metadata[i].get('url', 'Unknown'))
+            chunk_index = all_metadata[i].get('chunk_index', 0)
+            
+            context_parts.append(
+                f"Document: {filename} (Chunk {chunk_index + 1})\n"
+                f"Content: {all_documents[i]}"
+            )
+        
+        context = "\n\n".join(context_parts)
         
         return context, all_metadata
     

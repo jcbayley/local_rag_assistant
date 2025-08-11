@@ -58,14 +58,15 @@ class RAGSystem:
         self.prompt_template = PromptTemplate(
             input_variables=["context", "query"],
             template="""You are a helpful assistant searching a document archive. Use the provided context to answer the query. 
-You must cite the source from each document directly after the fact it supports! 
+You must cite the source document and chunk number directly after each fact! 
+Note that multiple chunks may come from the same document - always specify both the document name and chunk number.
 Do not guess or make up information not found in the context.
 
 Context: {context}
 
 Query: {query}
 
-Provide a bulleted answer with source references and format in markdown. Answer with references to sources:"""
+Provide a bulleted answer with source references (document name and chunk number) and format in markdown. Answer with references to sources:"""
         )
 
     def _stream_response(self, response, include_logprobs=False):
@@ -320,13 +321,42 @@ if __name__ == "__main__":
     parser.add_argument("--no-chromadb", action="store_true", help="Disable ChromaDB search.")
     parser.add_argument("--no-temp", action="store_true", help="Disable temporary document search.")
     parser.add_argument("--backend", "-b", type=str, choices=["ollama", "transformers"], 
-                       default="ollama", help="Backend to use for text generation.")
+                       default="ollama", help="Backend to use for text generation: 'ollama' for Ollama API or 'transformers' for local HuggingFace models.")
     parser.add_argument("--ollama-url", type=str, default="http://localhost:11434",
-                       help="Ollama base URL.")
+                       help="Ollama base URL (used with --backend ollama).")
     parser.add_argument("--hf-model", type=str, default="microsoft/DialoGPT-small",
-                       help="HuggingFace model name for transformers backend.")
+                       help="HuggingFace model name for transformers backend (used with --backend transformers). Examples: 'microsoft/DialoGPT-medium', 'microsoft/DialoGPT-large'.")
+    parser.add_argument("--list-backends", action="store_true", 
+                       help="Show available backends and their status, then exit.")
     
     args = parser.parse_args()
+
+    # Handle --list-backends option
+    if args.list_backends:
+        print("Available backends:")
+        print("\n1. Ollama Backend:")
+        try:
+            ollama_backend = OllamaBackend(base_url=args.ollama_url)
+            status = "✓ Available" if ollama_backend.is_available() else "✗ Not available"
+            print(f"   Status: {status}")
+            print(f"   URL: {args.ollama_url}")
+        except Exception as e:
+            print(f"   Status: ✗ Error - {e}")
+        
+        print("\n2. Transformers Backend:")
+        try:
+            transformers_backend = TransformersBackend(model_name=args.hf_model)
+            status = "✓ Available" if transformers_backend.is_available() else "✗ Not available"
+            print(f"   Status: {status}")
+            print(f"   Model: {args.hf_model}")
+            info = transformers_backend.get_model_info()
+            print(f"   Device: {info['device']}")
+            print(f"   CUDA Available: {info['cuda_available']}")
+        except Exception as e:
+            print(f"   Status: ✗ Error - {e}")
+        
+        print(f"\nCurrently selected: {args.backend}")
+        
 
     # Create RAG system
     doc_manager = DocumentManager()

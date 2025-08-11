@@ -15,15 +15,29 @@ from typing import Dict, List, Optional
 
 from local_rag_assistant.data.document_manager import DocumentManager
 from local_rag_assistant.rag.rag_system import RAGSystem
+from local_rag_assistant.backends.ollama_backend import OllamaBackend
+from local_rag_assistant.backends.transformers_backend import TransformersBackend
 
 
 class RAGAssistantCLI:
     """Interactive command-line interface for RAG Assistant."""
     
-    def __init__(self, db_path: str = "./chroma_db", collection_name: str = "chunked_scraped_data"):
-        """Initialize CLI with specified database and collection."""
+    def __init__(self, db_path: str = "./chroma_db", collection_name: str = "chunked_scraped_data", 
+                 backend: str = "ollama", ollama_url: str = "http://localhost:11434",
+                 hf_model_name: str = "microsoft/DialoGPT-small"):
+        """Initialize CLI with specified database, collection, and backend."""
         self.document_manager = DocumentManager(chromadb_path=db_path, collection_name=collection_name)
-        self.rag_system = RAGSystem(self.document_manager)
+        self.backend_type = backend
+        self.ollama_url = ollama_url
+        self.hf_model_name = hf_model_name
+        
+        # Initialize RAG system with selected backend
+        self.rag_system = RAGSystem(
+            self.document_manager, 
+            backend=backend,
+            ollama_url=ollama_url,
+            hf_model_name=hf_model_name
+        )
         self.running = True
         
         # Default query parameters
@@ -44,11 +58,22 @@ class RAGAssistantCLI:
         print("🤖 RAG Assistant CLI")
         print("="*60)
         status = self.document_manager.get_status()
+        rag_status = self.rag_system.get_status()
+        
         print(f"Database: {status['chromadb_path']}")
         print(f"Collection: {status['collection_name']}")
         print(f"ChromaDB Available: {'✓' if status['chromadb_available'] else '✗'}")
         print(f"Temp Documents: {status['temp_documents_count']}")
         print(f"Embedding Model: {status['embedding_model']}")
+        
+        # Backend information
+        backend_status = "✓" if rag_status['backend_available'] else "✗"
+        print(f"Backend: {self.backend_type} {backend_status}")
+        if self.backend_type == "ollama":
+            print(f"Ollama URL: {self.ollama_url}")
+        elif self.backend_type == "transformers":
+            print(f"HF Model: {self.hf_model_name}")
+        
         print("\nType '/help' for available commands or enter a query to start.")
         print("="*60)
     
@@ -75,6 +100,11 @@ Database Commands:
   /list-databases                   - List available databases
   /list-collections                 - List collections in current database
   /list-collections <db_path>       - List collections in specified database
+
+Backend Commands:
+  /switch-backend <backend>         - Switch between 'ollama' and 'transformers'
+  /list-backends                    - Show available backends and their status
+  /backend-status                   - Show current backend status
 
 Configuration Commands:
   /set <param> <value>     - Set query parameter (model, temperature, etc.)
@@ -154,6 +184,17 @@ Parameters you can set:
             parts = user_input.split()
             db_path = parts[1] if len(parts) > 1 else None
             self.list_collections(db_path)
+        
+        # Backend commands
+        elif user_input.lower().startswith('/switch-backend '):
+            backend = user_input[16:].strip()
+            self.switch_backend(backend)
+        
+        elif user_input.lower() == '/list-backends':
+            self.list_backends()
+        
+        elif user_input.lower() == '/backend-status':
+            self.show_backend_status()
         
         # Configuration commands
         elif user_input.lower().startswith('/set '):
@@ -244,7 +285,12 @@ Parameters you can set:
         if success:
             print(f"✅ {message}")
             # Reinitialize RAG system with new document manager
-            self.rag_system = RAGSystem(self.document_manager)
+            self.rag_system = RAGSystem(
+                self.document_manager,
+                backend=self.backend_type,
+                ollama_url=self.ollama_url,
+                hf_model_name=self.hf_model_name
+            )
         else:
             print(f"❌ {message}")
     
@@ -259,7 +305,12 @@ Parameters you can set:
         if success:
             print(f"✅ {message}")
             # Reinitialize RAG system with new document manager
-            self.rag_system = RAGSystem(self.document_manager)
+            self.rag_system = RAGSystem(
+                self.document_manager,
+                backend=self.backend_type,
+                ollama_url=self.ollama_url,
+                hf_model_name=self.hf_model_name
+            )
         else:
             print(f"❌ {message}")
     
@@ -293,6 +344,90 @@ Parameters you can set:
         for collection in collections:
             marker = " ← current" if collection == current_collection and db_path is None else ""
             print(f"  - {collection}{marker}")
+    
+    def switch_backend(self, backend: str):
+        """Switch to different backend."""
+        if not backend:
+            print("❌ Please provide a backend name")
+            return
+        
+        backend = backend.lower()
+        if backend not in ['ollama', 'transformers']:
+            print("❌ Backend must be 'ollama' or 'transformers'")
+            return
+        
+        if backend == self.backend_type:
+            print(f"ℹ️ Already using {backend} backend")
+            return
+        
+        print(f"🔄 Switching to {backend} backend...")
+        
+        try:
+            # Update backend type
+            self.backend_type = backend
+            
+            # Reinitialize RAG system with new backend
+            self.rag_system = RAGSystem(
+                self.document_manager,
+                backend=backend,
+                ollama_url=self.ollama_url,
+                hf_model_name=self.hf_model_name
+            )
+            
+            # Check if new backend is available
+            status = self.rag_system.get_status()
+            if status['backend_available']:
+                print(f"✅ Successfully switched to {backend} backend")
+            else:
+                print(f"⚠️ Switched to {backend} backend, but it's not available")
+                
+        except Exception as e:
+            print(f"❌ Failed to switch backend: {e}")
+    
+    def list_backends(self):
+        """List available backends and their status."""
+        print("\n🔧 Available Backends:")
+        
+        # Check Ollama backend
+        print("\n1. Ollama Backend:")
+        try:
+            ollama_backend = OllamaBackend(base_url=self.ollama_url)
+            status = "✓ Available" if ollama_backend.is_available() else "✗ Not available"
+            marker = " ← current" if self.backend_type == "ollama" else ""
+            print(f"   Status: {status}{marker}")
+            print(f"   URL: {self.ollama_url}")
+        except Exception as e:
+            print(f"   Status: ✗ Error - {e}")
+        
+        # Check Transformers backend
+        print("\n2. Transformers Backend:")
+        try:
+            transformers_backend = TransformersBackend(model_name=self.hf_model_name)
+            status = "✓ Available" if transformers_backend.is_available() else "✗ Not available"
+            marker = " ← current" if self.backend_type == "transformers" else ""
+            print(f"   Status: {status}{marker}")
+            print(f"   Model: {self.hf_model_name}")
+            info = transformers_backend.get_model_info()
+            print(f"   Device: {info['device']}")
+            print(f"   CUDA Available: {info['cuda_available']}")
+        except Exception as e:
+            print(f"   Status: ✗ Error - {e}")
+    
+    def show_backend_status(self):
+        """Show current backend status."""
+        status = self.rag_system.get_status()
+        print(f"\n🔧 Current Backend: {self.backend_type}")
+        print(f"Status: {'✓ Available' if status['backend_available'] else '✗ Not available'}")
+        
+        if self.backend_type == "ollama":
+            print(f"URL: {self.ollama_url}")
+        elif self.backend_type == "transformers":
+            if 'model_info' in status:
+                info = status['model_info']
+                print(f"Model: {info['model_name']}")
+                print(f"Device: {info['device']}")
+                print(f"Loaded: {info['loaded']}")
+                print(f"CUDA Available: {info['cuda_available']}")
     
     def set_parameter(self, param_str: str):
         """Set configuration parameter."""
@@ -423,10 +558,11 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  rag-assistant-cli                           # Use default database
-  rag-assistant-cli -db ./my_db               # Specify database path
-  rag-assistant-cli -db ./my_db -c my_docs    # Specify database and collection
-  rag-assistant-cli --database ./my_db --collection my_docs
+  rag-assistant-cli                                      # Use defaults (ollama backend)
+  rag-assistant-cli -b transformers                      # Use transformers backend
+  rag-assistant-cli -db ./my_db -c my_docs -b ollama     # Custom database with ollama
+  rag-assistant-cli --backend transformers --hf-model microsoft/DialoGPT-medium
+  rag-assistant-cli --ollama-url http://localhost:11434 --backend ollama
         """
     )
     
@@ -443,6 +579,25 @@ Examples:
     )
     
     parser.add_argument(
+        '-b', '--backend',
+        choices=['ollama', 'transformers'],
+        default='ollama',
+        help='Backend to use for text generation (default: ollama)'
+    )
+    
+    parser.add_argument(
+        '--ollama-url',
+        default='http://localhost:11434',
+        help='Ollama base URL (default: http://localhost:11434)'
+    )
+    
+    parser.add_argument(
+        '--hf-model',
+        default='HuggingFaceTB/SmolLM2-360M-Instruct',
+        help='HuggingFace model name for transformers backend (default: microsoft/DialoGPT-small)'
+    )
+    
+    parser.add_argument(
         '--version',
         action='version',
         version='RAG Assistant CLI v0.1.0'
@@ -452,7 +607,13 @@ Examples:
     
     try:
         # Create CLI instance and run
-        cli = RAGAssistantCLI(db_path=args.database, collection_name=args.collection)
+        cli = RAGAssistantCLI(
+            db_path=args.database, 
+            collection_name=args.collection,
+            backend=args.backend,
+            ollama_url=args.ollama_url,
+            hf_model_name=args.hf_model
+        )
         return cli.run()
     except Exception as e:
         print(f"❌ Failed to start CLI: {e}")
