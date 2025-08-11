@@ -142,7 +142,7 @@ Parameters you can set:
         
         # Exit commands
         if user_input.lower() in ['/exit', '/quit', '/q']:
-            print("👋 Goodbye!")
+            print(" Goodbye!")
             return False
         
         # Help command
@@ -222,7 +222,7 @@ Parameters you can set:
     def show_status(self):
         """Show current system status."""
         status = self.document_manager.get_status()
-        print("\n📊 System Status:")
+        print("\n System Status:")
         print(f"  Database Path: {status['chromadb_path']}")
         print(f"  Collection: {status['collection_name']}")
         print(f"  ChromaDB Available: {'✓' if status['chromadb_available'] else '✗'}")
@@ -238,14 +238,14 @@ Parameters you can set:
     def add_document(self, path: str, permanent: bool = False):
         """Add document to storage."""
         if not path:
-            print("❌ Please provide a file path")
+            print(" Please provide a file path")
             return
         
         if not os.path.exists(path):
-            print(f"❌ File not found: {path}")
+            print(f" File not found: {path}")
             return
         
-        print(f"📄 Adding document: {path}")
+        print(f" Adding document: {path}")
         
         if permanent:
             success, message = self.document_manager.add_to_chromadb(path)
@@ -255,35 +255,35 @@ Parameters you can set:
             storage_type = "temporary storage"
         
         if success:
-            print(f"✅ {message}")
+            print(f" {message}")
         else:
-            print(f"❌ Failed to add to {storage_type}: {message}")
+            print(f" Failed to add to {storage_type}: {message}")
     
     def list_temp_documents(self):
         """List temporary documents."""
         docs = self.document_manager.get_temp_documents_info()
         if not docs:
-            print("📭 No temporary documents loaded")
+            print(" No temporary documents loaded")
             return
         
-        print(f"\n📄 Temporary Documents ({len(docs)}):")
+        print(f"\n Temporary Documents ({len(docs)}):")
         for i, doc in enumerate(docs, 1):
             print(f"  {i}. {doc['filename']} ({doc['total_chunks']} chunks, {doc['source_type']})")
     
     def clear_temp_documents(self):
         """Clear all temporary documents."""
         self.document_manager.clear_temp_documents()
-        print("🗑️ Cleared all temporary documents")
+        print(" Cleared all temporary documents")
     
     def switch_database(self, path: str):
         """Switch to different database."""
         if not path:
-            print("❌ Please provide a database path")
+            print(" Please provide a database path")
             return
         
         success, message = self.document_manager.switch_database(path)
         if success:
-            print(f"✅ {message}")
+            print(f" {message}")
             # Reinitialize RAG system with new document manager
             self.rag_system = RAGSystem(
                 self.document_manager,
@@ -292,12 +292,12 @@ Parameters you can set:
                 hf_model_name=self.hf_model_name
             )
         else:
-            print(f"❌ {message}")
+            print(f" {message}")
     
     def switch_collection(self, name: str):
         """Switch to different collection in current database."""
         if not name:
-            print("❌ Please provide a collection name")
+            print(" Please provide a collection name")
             return
         
         current_db = self.document_manager.chromadb_path
@@ -312,16 +312,16 @@ Parameters you can set:
                 hf_model_name=self.hf_model_name
             )
         else:
-            print(f"❌ {message}")
+            print(f" {message}")
     
     def list_databases(self):
         """List available databases."""
         databases = self.document_manager.list_available_databases()
         if not databases:
-            print("📭 No ChromaDB databases found in current directory")
+            print(" No ChromaDB databases found in current directory")
             return
         
-        print(f"\n💾 Available Databases ({len(databases)}):")
+        print(f"\n Available Databases ({len(databases)}):")
         current_db = os.path.basename(self.document_manager.chromadb_path)
         for db in databases:
             marker = " ← current" if db == current_db else ""
@@ -331,10 +331,10 @@ Parameters you can set:
         """List collections in database."""
         if db_path:
             collections = self.document_manager.list_collections_in_database(db_path)
-            print(f"\n📚 Collections in {db_path}:")
+            print(f"\n Collections in {db_path}:")
         else:
             collections = self.document_manager.list_collections_in_database()
-            print(f"\n📚 Collections in current database:")
+            print(f"\n Collections in current database:")
         
         if not collections:
             print("  No collections found")
@@ -348,19 +348,19 @@ Parameters you can set:
     def switch_backend(self, backend: str):
         """Switch to different backend."""
         if not backend:
-            print("❌ Please provide a backend name")
+            print("Please provide a backend name")
             return
         
         backend = backend.lower()
         if backend not in ['ollama', 'transformers']:
-            print("❌ Backend must be 'ollama' or 'transformers'")
+            print("Backend must be 'ollama' or 'transformers'")
             return
         
         if backend == self.backend_type:
-            print(f"ℹ️ Already using {backend} backend")
+            print(f"ℹAlready using {backend} backend")
             return
         
-        print(f"🔄 Switching to {backend} backend...")
+        print(f"Switching to {backend} backend...")
         
         try:
             # Update backend type
@@ -379,10 +379,10 @@ Parameters you can set:
             if status['backend_available']:
                 print(f"✅ Successfully switched to {backend} backend")
             else:
-                print(f"⚠️ Switched to {backend} backend, but it's not available")
+                print(f" Switched to {backend} backend, but it's not available")
                 
         except Exception as e:
-            print(f"❌ Failed to switch backend: {e}")
+            print(f"Failed to switch backend: {e}")
     
     def list_backends(self):
         """List available backends and their status."""
@@ -434,14 +434,14 @@ Parameters you can set:
         try:
             parts = param_str.split(None, 1)
             if len(parts) != 2:
-                print("❌ Usage: /set <parameter> <value>")
+                print(" Usage: /set <parameter> <value>")
                 return
             
             param, value = parts
             param = param.lower()
             
             if param not in self.default_params:
-                print(f"❌ Unknown parameter: {param}")
+                print(f" Unknown parameter: {param}")
                 print(f"Available: {', '.join(self.default_params.keys())}")
                 return
             
@@ -455,14 +455,14 @@ Parameters you can set:
             # model stays as string
             
             self.default_params[param] = value
-            print(f"✅ Set {param} = {value}")
+            print(f" Set {param} = {value}")
             
         except ValueError as e:
-            print(f"❌ Invalid value for parameter: {e}")
+            print(f"Invalid value for parameter: {e}")
     
     def show_parameters(self):
         """Show current parameters."""
-        print("\n⚙️ Current Parameters:")
+        print("\n Current Parameters:")
         for param, value in self.default_params.items():
             print(f"  {param}: {value}")
     
@@ -478,15 +478,15 @@ Parameters you can set:
             'use_chromadb': True,
             'use_temp_docs': True
         }
-        print("✅ Parameters reset to defaults")
+        print(" Parameters reset to defaults")
     
     def process_query(self, query: str):
         """Process a user query through the RAG system."""
         if not query.strip():
-            print("❌ Please provide a query")
+            print(" Please provide a query")
             return
         
-        print(f"\n🤔 Query: {query}")
+        print(f"\n Query: {query}")
         print("🔍 Searching documents...")
         
         try:
@@ -509,7 +509,7 @@ Parameters you can set:
                 model_kwargs=model_kwargs
             )
             
-            print(f"\n🤖 Response:")
+            print(f"\n Response:")
             print("-" * 50)
             print(response)
             
@@ -526,7 +526,7 @@ Parameters you can set:
             print("-" * 50)
             
         except Exception as e:
-            print(f"❌ Error processing query: {e}")
+            print(f"Error processing query: {e}")
     
     def run(self):
         """Main interactive loop."""
@@ -539,13 +539,13 @@ Parameters you can set:
                     if not self.handle_command(user_input):
                         break
                 except KeyboardInterrupt:
-                    print("\n\n👋 Goodbye! (Ctrl+C)")
+                    print("\n\n Goodbye! (Ctrl+C)")
                     break
                 except EOFError:
-                    print("\n👋 Goodbye!")
+                    print("\n Goodbye!")
                     break
         except Exception as e:
-            print(f"❌ Unexpected error: {e}")
+            print(f"Unexpected error: {e}")
             return 1
         
         return 0
@@ -616,7 +616,7 @@ Examples:
         )
         return cli.run()
     except Exception as e:
-        print(f"❌ Failed to start CLI: {e}")
+        print(f"Failed to start CLI: {e}")
         return 1
 
 
